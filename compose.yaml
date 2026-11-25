@@ -1,0 +1,7 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "127.0.0.1:${REPOBRAIN_HOST_PORT:-8000}:8000"
+    environment:
+      REPOBRAIN_LOG_LEVEL: ${REPOBRAIN_LOG_LEVEL:-INFO}
