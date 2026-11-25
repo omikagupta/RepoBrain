@@ -26,6 +26,12 @@
   Keep request bodies and raw query strings out of request logs.
 - Run the container as a non-root user. Bind local Compose ports to loopback.
 
+## Migration safety
+
+- Never run destructive downgrades, drop schemas, delete named volumes, or
+  reset persistent data without explicit approval and an appropriate backup.
+- Run integration tests only against isolated disposable databases.
+
 ## Git
 
 - Start feature branches from an up-to-date `main` and make focused commits.

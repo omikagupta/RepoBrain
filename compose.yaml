@@ -8,7 +8,7 @@ services:
       - "127.0.0.1:${REPOBRAIN_HOST_PORT:-8000}:8000"
     environment:
       REPOBRAIN_LOG_LEVEL: ${REPOBRAIN_LOG_LEVEL:-INFO}
-      REPOBRAIN_DATABASE_URL: ${REPOBRAIN_DATABASE_URL:-postgresql+asyncpg://repobrain:repobrain-local-only@db:5432/repobrain}
+      REPOBRAIN_LOCAL_DB_PASSWORD: &local-db-password ${POSTGRES_PASSWORD:-repobrain-local-only}
       REPOBRAIN_DB_POOL_SIZE: ${REPOBRAIN_DB_POOL_SIZE:-5}
       REPOBRAIN_DB_MAX_OVERFLOW: ${REPOBRAIN_DB_MAX_OVERFLOW:-5}
       REPOBRAIN_DB_POOL_TIMEOUT: ${REPOBRAIN_DB_POOL_TIMEOUT:-10}
@@ -18,11 +18,15 @@ services:
     environment:
       POSTGRES_DB: repobrain
       POSTGRES_USER: repobrain
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repobrain-local-only}
+      POSTGRES_PASSWORD: *local-db-password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test:
+        - CMD-SHELL
+        - >-
+          PGPASSWORD="$$POSTGRES_PASSWORD" psql -h "$$HOSTNAME"
+          -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -w -Atqc 'SELECT 1' >/dev/null
       interval: 3s
       timeout: 3s
       retries: 20

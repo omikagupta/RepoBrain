@@ -24,19 +24,24 @@ already have one. The operating system environment takes precedence over
 | Variable | Default | Allowed values |
 | --- | --- | --- |
 | `REPOBRAIN_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
-| `REPOBRAIN_DATABASE_URL` | Compose supplies a disposable local URL | `postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE`. Required for migrations. |
+| `REPOBRAIN_DATABASE_URL` | Unset | `postgresql+asyncpg://USER:PASSWORD@HOST:5432/DATABASE` for a separately hosted database |
 | `REPOBRAIN_DB_POOL_SIZE` | `5` | Persistent pooled connections per process, at least 1 |
 | `REPOBRAIN_DB_MAX_OVERFLOW` | `5` | Additional connections per process, at least 0 |
 | `REPOBRAIN_DB_POOL_TIMEOUT` | `10` | Positive pool checkout timeout in seconds |
 | `REPOBRAIN_HOST_PORT` | `8000` | Compose backend port on `127.0.0.1` |
 | `POSTGRES_PASSWORD` | Disposable Compose development password | Initial local database password |
 
-Percent-encode special characters in database URL credentials. The Compose
-defaults are for disposable development use only. For other deployments use
-separately provisioned credentials and inject them through environment secrets.
-Set both `POSTGRES_PASSWORD` and the matching `REPOBRAIN_DATABASE_URL` if
-overriding the password on first local startup. PostgreSQL reads the initialization
-password only when creating a new data directory.
+For local Compose, set only `POSTGRES_PASSWORD` before creating a new data
+volume. Supply the raw password. Compose passes the same value to PostgreSQL
+and the backend, and the backend encodes it for the connection URL. The
+disposable development default applies when the variable is unset or empty.
+Changing it later does not rotate the password in an existing volume. If the
+configured password does not match the stored one, PostgreSQL's authenticated
+health check fails. Restore the matching value or arrange a deliberate rotation.
+
+For a separately hosted database, provide `REPOBRAIN_DATABASE_URL` outside this
+Compose stack. Percent-encode special characters in URL credentials and inject
+the URL through your environment's secret store.
 
 ## Run locally
 
@@ -136,3 +141,9 @@ PowerShell, provide `REPOBRAIN_DATABASE_URL` through your environment and run
 `uv run --locked alembic upgrade head`. The migration role needs schema DDL
 privileges and permission to enable `vector`, or an administrator can enable
 the extension first.
+
+### Migration safety
+
+Never run destructive downgrades, drop schemas, delete named volumes, or reset
+persistent data without explicit approval and an appropriate backup.
+Integration tests must use only isolated disposable databases.
