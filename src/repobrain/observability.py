@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from time import perf_counter
 from uuid import uuid4
 
+from sqlalchemy.exc import SQLAlchemyError
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -86,12 +87,20 @@ class RequestMiddleware:
 
         try:
             await self.app(scope, receive, send_with_request_id)
-        except Exception:
+        except Exception as exc:
             if status_code is not None:
                 # The server must terminate a response that has already started.
                 raise
-            logger.exception(
-                "request_failed", extra={"event_fields": {"request_id": request_id}}
+            # Driver exceptions can include failed row contents.
+            logger.error(
+                "request_failed",
+                exc_info=not isinstance(exc, SQLAlchemyError),
+                extra={
+                    "event_fields": {
+                        "request_id": request_id,
+                        "error_type": type(exc).__name__,
+                    }
+                },
             )
             response = error_response(
                 Request(scope), 500, "internal_error", "Internal server error"

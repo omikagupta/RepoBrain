@@ -1,3 +1,5 @@
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
@@ -7,6 +9,7 @@ from pydantic import BaseModel
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
+from repobrain.database.connection import create_database_engine, create_session_factory
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
 from repobrain.settings import Settings
 
@@ -18,7 +21,22 @@ class HealthResponse(BaseModel):
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings if settings is not None else Settings()
     configure_logging(settings.log_level_number)
-    app = FastAPI(title="RepoBrain")
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if settings.database_url is None:
+            app.state.database_sessions = None
+            yield
+            return
+        engine = create_database_engine(settings)
+        app.state.database_sessions = create_session_factory(engine)
+        try:
+            yield
+        finally:
+            await engine.dispose()
+            app.state.database_sessions = None
+
+    app = FastAPI(title="RepoBrain", lifespan=lifespan)
     app.add_middleware(RequestMiddleware)
 
     @app.exception_handler(HTTPException)

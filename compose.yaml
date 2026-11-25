@@ -1,7 +1,31 @@
 services:
   backend:
     build: .
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "127.0.0.1:${REPOBRAIN_HOST_PORT:-8000}:8000"
     environment:
       REPOBRAIN_LOG_LEVEL: ${REPOBRAIN_LOG_LEVEL:-INFO}
+      REPOBRAIN_DATABASE_URL: ${REPOBRAIN_DATABASE_URL:-postgresql+asyncpg://repobrain:repobrain-local-only@db:5432/repobrain}
+      REPOBRAIN_DB_POOL_SIZE: ${REPOBRAIN_DB_POOL_SIZE:-5}
+      REPOBRAIN_DB_MAX_OVERFLOW: ${REPOBRAIN_DB_MAX_OVERFLOW:-5}
+      REPOBRAIN_DB_POOL_TIMEOUT: ${REPOBRAIN_DB_POOL_TIMEOUT:-10}
+  db:
+    image: pgvector/pgvector:0.8.7-pg17-bookworm
+    command: ["postgres", "-c", "log_error_verbosity=terse", "-c", "log_min_error_statement=panic"]
+    environment:
+      POSTGRES_DB: repobrain
+      POSTGRES_USER: repobrain
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-repobrain-local-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
