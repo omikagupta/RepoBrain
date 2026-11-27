@@ -290,3 +290,29 @@ without a line fragment. The permalink is constructed from the verified
 stored repository, exact commit and encoded path, with the actual range in
 the fragment. The backend makes no live GitHub request to check whether the
 link is still accessible.
+
+## Build and query a lexical index
+
+Apply Alembic head and start the Compose backend. Use a completed ingestion
+snapshot UUID. The index build uses its stored source and does not require a
+persisted graph. A repeated build reuses the committed index.
+
+```powershell
+$snapshot = ([guid]$job.snapshot_id).ToString()
+docker compose run --rm --no-deps backend python -m repobrain.search $snapshot
+$query = [uri]::EscapeDataString('load_item')
+Invoke-RestMethod "$base/api/v1/snapshots/$snapshot/search/lexical?q=$query&limit=10"
+```
+
+With a database URL configured outside Compose, run
+`uv run --locked python -m repobrain.search $snapshot` from PowerShell.
+The API returns `404` for a missing snapshot, `409` for incomplete ingestion
+or an unavailable compatible index, and `422` for invalid query parameters.
+Queries accept up to 256 characters and 32 distinct supported terms.
+`limit` defaults to 10 and permits 1–30.
+
+Results include score, rank, source file and chunk UUIDs, exact UTF-8 chunk
+text, both SHA-256 hashes, and a permalink for the pinned commit and
+inclusive line range. Search uses exact case-folded tokens and a PostgreSQL
+full-text score. The [architecture notes](docs/architecture.md#milestone-4a)
+describe identifier handling, ranking, and build limits.

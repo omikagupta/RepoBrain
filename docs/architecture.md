@@ -117,9 +117,60 @@ excluded from the response. Permalinks use canonical stored repository
 identity, an immutable SHA, a safely encoded path, and the actual returned
 line range. No API call to GitHub is needed.
 
+## Milestone 4A
+
+The lexical CLI uses the existing isolated Python parser to obtain definition
+spans from stored source, independently of graph persistence. Version
+`python-lines-v1` partitions files into disjoint line ranges around classes,
+methods and functions, while keeping nested definitions inside a fitting
+function or method. Gaps and oversized ranges fall back to consecutive
+windows of at most 80 lines and 8 KiB. Overlap is zero. Blank lines and original
+LF, CRLF or CR terminators are retained. Empty files produce no chunks.
+Syntax-error files use the same fallback windows. A single line exceeding the
+byte budget fails the build so source is never silently dropped.
+
+Natural keys hash the snapshot ID, original path, inclusive boundaries, and
+chunking version. UUIDs derive from those keys. `search_indexes` records the
+committed version, file and chunk counts, source bytes, and build time.
+`source_chunks` records the file ID, both SHA-256 hashes, exact source, and
+normalized token data. Composite foreign keys enforce matching snapshot and
+version, including the source file's snapshot. A stored generated `tsvector`
+uses the PostgreSQL `simple` configuration and a GIN index supports matching.
+
+A snapshot row lock serializes concurrent builds. The marker and all chunks
+commit together. Retrying a failed build starts fresh. A completed build is
+reused, and a different version fails clearly. Changes to chunk boundaries or
+tokenization require an explicit version change. Builds share the graph
+reader's limits of 1,000 files, 256 KiB per file, and 4 MiB of input, and stop
+at 10,000 chunks or a 60-second timeout. Each token document has a 64 KiB cap.
+
+Indexing case-folds words, preserves whole snake_case and dotted identifiers,
+and adds their components. The chunk at a definition's first line also
+receives its AST-qualified name and dotted suffixes. Each term is encoded as
+one ASCII lexeme so PostgreSQL preserves its underscores, dots, and Unicode
+identity. Terms longer than 128 UTF-8 bytes are skipped. Queries require
+all distinct whole terms through parameterized `plainto_tsquery`.
+Ranking uses `ts_rank(vector, query, 32)` in descending order with no separate
+exact-match boost. Ties use bytewise path order, starting line, then stable
+key. AST aliases are ordinary indexed occurrences and can affect term
+frequency. Comments and strings are searchable. Stemming, fuzzy matches,
+phrase syntax, semantic similarity, and cross-chunk matching are outside
+this baseline.
+
+The local fixture in `tests/test_lexical_search.py` builds seven chunks from
+four nonempty Python files. The PostgreSQL integration test checks ordering,
+matching, and byte-exact evidence. A PostgreSQL 17 run returned these results
+for `load_item`.
+
+| Rank | File | Lines | Score |
+| ---: | --- | --- | ---: |
+| 1 | `src/pkg/tools.py` | 4–8 | 0.07062409818172455 |
+| 2 | `examples/a.py` | 1 | 0.057308755815029144 |
+| 3 | `examples/é #?%.py` | 1 | 0.057308755815029144 |
+
 ## Planned architecture
 
-1. Retrieve source passages with lexical and vector search. Optionally expand
+1. Combine lexical and vector search. Optionally expand
    the candidate set through bounded graph traversal.
 2. Generate evidence-backed answers with citations that link to the pinned
    commit, file, and lines. Expose dependency relationships through a React

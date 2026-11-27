@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import (
     CheckConstraint,
+    Computed,
     DateTime,
     Enum,
     FetchedValue,
@@ -15,7 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -180,3 +181,71 @@ class GraphEdge(Base):
     line: Mapped[int | None]
     column: Mapped[int | None]
     provenance: Mapped[str] = mapped_column(Text)
+
+
+class SearchIndex(Base):
+    __tablename__ = "search_indexes"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "chunking_version", name="uq_search_index_version"
+        ),
+    )
+
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), primary_key=True
+    )
+    chunking_version: Mapped[str] = mapped_column(String(24))
+    chunk_count: Mapped[int]
+    indexed_files: Mapped[int]
+    indexed_bytes: Mapped[int]
+    built_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class SourceChunk(Base):
+    __tablename__ = "source_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "stable_key", name="uq_source_chunks_snapshot_key"
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "chunking_version"],
+            ["search_indexes.snapshot_id", "search_indexes.chunking_version"],
+            name="fk_source_chunks_search_index",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "source_file_id"],
+            ["source_files.snapshot_id", "source_files.id"],
+            name="fk_source_chunks_source_file",
+        ),
+        CheckConstraint(
+            "start_line >= 1 AND end_line >= start_line", name="ck_source_chunks_range"
+        ),
+        Index(
+            "ix_source_chunks_snapshot_file",
+            "snapshot_id",
+            "source_file_id",
+            "start_line",
+        ),
+        Index(
+            "ix_source_chunks_search_vector", "search_vector", postgresql_using="gin"
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[UUID]
+    chunking_version: Mapped[str] = mapped_column(String(24))
+    source_file_id: Mapped[UUID]
+    stable_key: Mapped[str] = mapped_column(String(64))
+    start_line: Mapped[int]
+    end_line: Mapped[int]
+    content: Mapped[str] = mapped_column(Text)
+    source_sha256: Mapped[str] = mapped_column(String(64))
+    content_sha256: Mapped[str] = mapped_column(String(64))
+    token_text: Mapped[str] = mapped_column(Text)
+    search_vector: Mapped[str] = mapped_column(
+        TSVECTOR,
+        Computed("to_tsvector('simple'::regconfig, token_text)", persisted=True),
+    )
