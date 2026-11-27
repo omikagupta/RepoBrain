@@ -403,6 +403,31 @@ def slice_source(content: str, start: int, end: int) -> list[SourceLine]:
     return lines
 
 
+def source_permalink(
+    identity: Identity, path: str, actual_start: int | None, actual_end: int | None
+) -> str:
+    try:
+        name = canonical_repository(identity.repository)
+    except ValueError:
+        raise ExplorationError(
+            500, "invalid_snapshot_identity", "Invalid stored snapshot identity"
+        ) from None
+    if not re.fullmatch(r"[a-f0-9]{40}", identity.commit_sha):
+        raise ExplorationError(
+            500, "invalid_snapshot_identity", "Invalid stored snapshot identity"
+        )
+    permalink = (
+        f"https://github.com/{name}/blob/{identity.commit_sha}/{quote(path, safe='/')}"
+    )
+    if actual_start is not None:
+        permalink += (
+            f"#L{actual_start}"
+            if actual_start == actual_end
+            else f"#L{actual_start}-L{actual_end}"
+        )
+    return permalink
+
+
 async def read_source(
     session: AsyncSession,
     snapshot: Snapshot,
@@ -447,25 +472,7 @@ async def read_source(
     lines = slice_source(content, start, end)
     actual_start = lines[0].line_number if lines else None
     actual_end = lines[-1].line_number if lines else None
-    try:
-        name = canonical_repository(identity.repository)
-    except ValueError:
-        raise ExplorationError(
-            500, "invalid_snapshot_identity", "Invalid stored snapshot identity"
-        ) from None
-    if not re.fullmatch(r"[a-f0-9]{40}", identity.commit_sha):
-        raise ExplorationError(
-            500, "invalid_snapshot_identity", "Invalid stored snapshot identity"
-        )
-    permalink = (
-        f"https://github.com/{name}/blob/{identity.commit_sha}/{quote(path, safe='/')}"
-    )
-    if actual_start is not None:
-        permalink += (
-            f"#L{actual_start}"
-            if actual_start == actual_end
-            else f"#L{actual_start}-L{actual_end}"
-        )
+    permalink = source_permalink(identity, path, actual_start, actual_end)
     return SourceView(
         **identity.model_dump(),
         path=path,

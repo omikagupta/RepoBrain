@@ -17,6 +17,7 @@ from repobrain.ingestion.github import IngestionError
 from repobrain.ingestion.routes import router as ingestion_router
 from repobrain.ingestion.service import IngestionService
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
+from repobrain.search.routes import router as search_router
 from repobrain.settings import Settings
 
 
@@ -64,6 +65,7 @@ def create_app(
     app.add_middleware(RequestMiddleware)
     app.include_router(ingestion_router)
     app.include_router(graph_router)
+    app.include_router(search_router)
 
     @app.exception_handler(ExplorationError)
     async def handle_exploration_error(
