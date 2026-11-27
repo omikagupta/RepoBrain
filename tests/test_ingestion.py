@@ -2,11 +2,13 @@ import asyncio
 from datetime import UTC, datetime, timedelta
 from hashlib import sha1, sha256
 from typing import Any
+from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
 import httpx
 import pytest
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from repobrain.database.connection import create_database_engine, create_session_factory
 from repobrain.database.models import (
@@ -15,7 +17,8 @@ from repobrain.database.models import (
     RepositorySnapshot,
     SourceFile,
 )
-from repobrain.ingestion.github import GitHub, IngestionError
+from repobrain.ingestion.github import GitHub, IngestionError, PythonFile
+from repobrain.ingestion.service import IngestionService, SnapshotStatus
 from repobrain.main import create_app
 from repobrain.settings import Settings
 
@@ -75,7 +78,9 @@ class FixtureGitHub:
             return httpx.Response(404)
         if path == f"{root}/git/trees/{TREE}":
             assert request.url.params["recursive"] == "1"
-            return httpx.Response(200, json={"truncated": False, "tree": self.entries})
+            return httpx.Response(
+                200, json={"sha": TREE, "truncated": False, "tree": self.entries}
+            )
         if path.startswith(f"{root}/git/blobs/"):
             self.entered.set()
             if self.pause is not None:
@@ -169,14 +174,14 @@ async def test_ingestion_limits(setting: str) -> None:
 async def test_stream_budget_without_content_length() -> None:
     class Chunks(httpx.AsyncByteStream):
         async def __aiter__(self) -> Any:
-            yield b"x" * 16384
-            yield b"y" * 16384
+            yield b"abcd"
+            yield b"ef"
             pytest.fail("Read past the ingress limit")
 
     transport = httpx.MockTransport(lambda _: httpx.Response(200, stream=Chunks()))
     async with httpx.AsyncClient(transport=transport) as http:
         with pytest.raises(IngestionError) as error:
-            await GitHub(http, Settings(ingestion_max_network_bytes=20000)).resolve(
+            await GitHub(http, Settings(ingestion_max_network_bytes=5)).resolve(
                 "sample/project", None
             )
     assert error.value.status == 413
@@ -290,7 +295,8 @@ async def test_interrupted_ingestion_is_retryable(migrated_database: Settings) -
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as api,
     ):
-        failed = await poll(api, location, "failed")
+        failed = (await api.get(location)).json()
+        assert failed["state"] == "failed"
         assert failed["file_count"] == 0
         assert failed["error"]["code"] == "ingestion_failed"
         retry = await api.post(POST, json=body)
@@ -303,6 +309,8 @@ async def test_interrupted_ingestion_is_retryable(migrated_database: Settings) -
 async def test_abandoned_snapshot_is_recovered(migrated_database: Settings) -> None:
     name = f"repo-{uuid4().hex}"
     github = FixtureGitHub(f"sample/{name}")
+    github.pause = asyncio.Event()
+    old_token = datetime.now(UTC) - timedelta(minutes=10)
     engine = create_database_engine(migrated_database)
     try:
         async with create_session_factory(engine).begin() as session:
@@ -313,11 +321,12 @@ async def test_abandoned_snapshot_is_recovered(migrated_database: Settings) -> N
                 repository_id=repository.id,
                 commit_sha=SHA,
                 ingestion_state=IngestionState.RUNNING,
-                updated_at=datetime.now(UTC) - timedelta(minutes=10),
+                updated_at=old_token,
             )
             session.add(snapshot)
             await session.flush()
-            location = f"/api/v1/ingestions/{snapshot.id}"
+            snapshot_id = snapshot.id
+            location = f"/api/v1/ingestions/{snapshot_id}"
     finally:
         await engine.dispose()
 
@@ -331,4 +340,184 @@ async def test_abandoned_snapshot_is_recovered(migrated_database: Settings) -> N
         assert (await poll(api, location, "failed"))["file_count"] == 0
         retry = await api.post(POST, json={"repository": github.repository, "ref": SHA})
         assert retry.status_code == 202 and retry.headers["location"] == location
-        assert (await poll(api, location, "completed"))["commit_sha"] == SHA
+        async with asyncio.timeout(5):
+            await github.entered.wait()
+        service: IngestionService = app.state.ingestion
+        stale_files = [PythonFile("stale.py", "old", sha256(b"old").hexdigest(), 1)]
+        await service.complete(snapshot_id, old_token, stale_files)
+        async with service.sessions.begin() as session:
+            assert (
+                await service.transition(
+                    session,
+                    snapshot_id,
+                    old_token,
+                    IngestionState.RUNNING,
+                    IngestionState.FAILED,
+                )
+                is None
+            )
+        assert (await api.get(location)).json()["state"] == "running"
+        github.pause.set()
+        async with asyncio.timeout(5):
+            await asyncio.gather(*service.tasks)
+        await service.complete(snapshot_id, old_token, stale_files)
+        completed = (await api.get(location)).json()
+        assert completed["state"] == "completed" and completed["file_count"] == 1
+        assert completed["commit_sha"] == SHA
+        async with service.sessions() as session:
+            paths = await session.scalars(
+                select(SourceFile.path).where(SourceFile.snapshot_id == snapshot_id)
+            )
+            assert paths.all() == ["src/main.py"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_before_worker_starts_releases_capacity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    github = FixtureGitHub()
+    snapshot_id = uuid4()
+    async with httpx.AsyncClient(transport=github.transport()) as client:
+        sessions: async_sessionmaker[AsyncSession] = async_sessionmaker()
+        service = IngestionService(sessions, client, Settings())
+        monkeypatch.setattr(
+            service, "prepare", AsyncMock(return_value=(snapshot_id, datetime.now(UTC)))
+        )
+        monkeypatch.setattr(
+            service,
+            "status",
+            AsyncMock(
+                return_value=SnapshotStatus(
+                    snapshot_id=snapshot_id,
+                    repository=github.repository,
+                    commit_sha=SHA,
+                    state=IngestionState.PENDING,
+                    file_count=0,
+                )
+            ),
+        )
+        worker = AsyncMock()
+        monkeypatch.setattr(service, "run", worker)
+        await service.submit(github.repository, None, "pre-start-cancellation")
+        assert service.active == 1
+        await service.close()
+        worker.assert_not_awaited()
+        assert service.active == 0 and not service.tasks
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_parallel_submissions_over_capacity(migrated_database: Settings) -> None:
+    github = FixtureGitHub(f"sample/repo-{uuid4().hex}")
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.path == f"/repos/{github.repository}":
+            entered.set()
+            await release.wait()
+        return await github.handle(request)
+
+    settings = migrated_database.model_copy(update={"ingestion_concurrency": 1})
+    app = create_app(settings, github_transport=httpx.MockTransport(handle))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as api,
+        asyncio.timeout(5),
+        asyncio.TaskGroup() as tasks,
+    ):
+        first = tasks.create_task(
+            api.post(POST, json={"repository": github.repository})
+        )
+        try:
+            await entered.wait()
+            excess = await asyncio.gather(
+                *(
+                    api.post(POST, json={"repository": f"sample/repo-{i}"})
+                    for i in range(3)
+                )
+            )
+            assert [response.status_code for response in excess] == [429, 429, 429]
+            assert all(
+                response.json()["error"]["code"] == "ingestion_busy"
+                for response in excess
+            )
+            assert not github.paths
+        finally:
+            release.set()
+        assert (await first).status_code == 202
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "truncated",
+        "malformed_entry",
+        "malformed_json",
+        "wrong_tree",
+        "network_budget",
+        "timeout",
+        "insert",
+    ],
+)
+async def test_failed_ingestion_never_persists_partial_files(
+    migrated_database: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+) -> None:
+    github = FixtureGitHub(f"sample/repo-{uuid4().hex}")
+
+    async def handle(request: httpx.Request) -> httpx.Response:
+        if "/git/trees/" in request.url.path:
+            if failure == "truncated":
+                return httpx.Response(
+                    200, json={"truncated": True, "tree": github.entries}
+                )
+            if failure == "malformed_json":
+                return httpx.Response(200, content=b"{")
+            if failure == "wrong_tree":
+                return httpx.Response(
+                    200, json={"sha": SHA, "truncated": False, "tree": github.entries}
+                )
+            if failure == "network_budget":
+                return httpx.Response(200, content=b"x" * 8192)
+        if "/git/blobs/" in request.url.path and failure == "timeout":
+            await asyncio.Event().wait()
+        return await github.handle(request)
+
+    if failure == "malformed_entry":
+        github.entries.append(entry("broken.py", mode=None))
+    if failure == "insert":
+        file = PythonFile("duplicate.py", "test", sha256(b"test").hexdigest(), 1)
+        monkeypatch.setattr(GitHub, "collect", AsyncMock(return_value=[file, file]))
+
+    settings = migrated_database.model_copy(
+        update={
+            "ingestion_timeout": 1 if failure == "timeout" else 60,
+            "ingestion_max_network_bytes": 4096,
+        }
+    )
+    app = create_app(settings, github_transport=httpx.MockTransport(handle))
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://test"
+        ) as api,
+    ):
+        accepted = await api.post(POST, json={"repository": github.repository})
+        assert accepted.status_code == 202, accepted.text
+        service: IngestionService = app.state.ingestion
+        async with asyncio.timeout(5):
+            await asyncio.gather(*service.tasks)
+        result = (await api.get(accepted.headers["location"])).json()
+        assert result["state"] == "failed" and result["file_count"] == 0
+        async with service.sessions() as session:
+            files = await session.scalars(
+                select(SourceFile.id).where(
+                    SourceFile.snapshot_id == UUID(result["snapshot_id"])
+                )
+            )
+            assert files.all() == []

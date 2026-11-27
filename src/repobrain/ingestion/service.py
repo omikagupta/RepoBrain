@@ -164,14 +164,14 @@ class IngestionService:
             async with asyncio.timeout(self.settings.ingestion_timeout):
                 commit = await github.resolve(repository, ref)
                 snapshot_id, pending = await self.prepare(commit)
-            if pending is not None:
-                task = asyncio.create_task(
-                    self.run(github, commit, snapshot_id, pending, request_id)
-                )
-                self.tasks.add(task)
-                task.add_done_callback(self.tasks.discard)
-                scheduled = True
-            return await self.status(snapshot_id)
+                if pending is not None:
+                    task = asyncio.create_task(
+                        self.run(github, commit, snapshot_id, pending, request_id)
+                    )
+                    self.tasks.add(task)
+                    task.add_done_callback(self.release_task)
+                    scheduled = True
+                return await self.status(snapshot_id)
         except TimeoutError:
             raise IngestionError(
                 504, "ingestion_timeout", "Ingestion request timed out"
@@ -179,6 +179,11 @@ class IngestionService:
         finally:
             if not scheduled:
                 self.active -= 1
+
+    def release_task(self, task: asyncio.Task[None]) -> None:
+        # A task cancelled before its first step never enters run().
+        self.tasks.discard(task)
+        self.active -= 1
 
     async def transition(
         self,
@@ -261,5 +266,3 @@ class IngestionService:
                 )
             if isinstance(exc, asyncio.CancelledError):
                 raise
-        finally:
-            self.active -= 1

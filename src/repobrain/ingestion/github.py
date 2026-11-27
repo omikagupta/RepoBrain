@@ -24,6 +24,11 @@ EXCLUDED = {
     "venv",
 }
 CONTROL_BYTES = re.compile(rb"[\x00-\x08\x0b\x0e-\x1f\x7f]")
+ENTRY_MODES = {
+    "tree": ("040000",),
+    "commit": ("160000",),
+    "blob": ("120000", "100644", "100755"),
+}
 
 
 class IngestionError(Exception):
@@ -161,7 +166,7 @@ class GitHub:
                     if int(length) > min(cap, self.remaining):
                         raise limit_error()
                 body = bytearray()
-                async for chunk in response.aiter_bytes(chunk_size=16384):
+                async for chunk in response.aiter_bytes():
                     self.remaining -= len(chunk)
                     if self.remaining < 0 or len(body) + len(chunk) > cap:
                         raise limit_error()
@@ -227,7 +232,11 @@ class GitHub:
         if tree.get("truncated") is True:
             raise limit_error()
         entries = tree.get("tree")
-        if tree.get("truncated") is not False or not isinstance(entries, list):
+        if (
+            tree.get("truncated") is not False
+            or tree.get("sha") != commit.tree_sha
+            or not isinstance(entries, list)
+        ):
             raise upstream_error()
         files: list[PythonFile] = []
         seen: set[str] = set()
@@ -239,24 +248,29 @@ class GitHub:
             if relative in seen:
                 raise upstream_error()
             seen.add(relative)
+            kind = entry.get("type")
+            mode = entry.get("mode")
+            if not isinstance(kind, str) or mode not in ENTRY_MODES.get(kind, ()):
+                raise upstream_error()
+            blob = object_sha(entry.get("sha"))
+            if kind != "blob":
+                continue
+            size = entry.get("size")
+            if type(size) is not int or size < 0:
+                raise upstream_error()
             if (
-                entry.get("type") != "blob"
-                or entry.get("mode") not in {"100644", "100755"}
+                mode == "120000"
                 or not relative.endswith(".py")
                 or EXCLUDED.intersection(
                     part.lower() for part in relative.split("/")[:-1]
                 )
             ):
                 continue
-            size = entry.get("size")
-            if type(size) is not int or size < 0:
-                raise upstream_error()
             if size > self.settings.ingestion_max_file_bytes:
                 continue
             candidates += 1
             if candidates > self.settings.ingestion_max_files:
                 raise limit_error()
-            blob = object_sha(entry.get("sha"))
             data = await self.read(
                 f"{path}/blobs/{blob}",
                 "application/vnd.github.raw+json",
