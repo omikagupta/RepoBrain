@@ -21,6 +21,14 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=5, ge=1)
     db_max_overflow: int = Field(default=5, ge=0)
     db_pool_timeout: float = Field(default=10, gt=0, allow_inf_nan=False)
+    ingestion_max_files: int = Field(default=200, ge=1, le=1000)
+    ingestion_max_file_bytes: int = Field(default=256 * 1024, ge=1, le=1024 * 1024)
+    ingestion_max_total_bytes: int = Field(default=4 * 1024**2, ge=1, le=16 * 1024**2)
+    ingestion_max_network_bytes: int = Field(
+        default=12 * 1024**2, ge=1, le=32 * 1024**2
+    )
+    ingestion_timeout: int = Field(default=60, ge=1, le=300)
+    ingestion_concurrency: int = Field(default=1, ge=1, le=4)
 
     @field_validator("database_url")
     @classmethod

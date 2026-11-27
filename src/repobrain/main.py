@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from http import HTTPStatus
 from typing import Literal
 
+import httpx
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
@@ -10,6 +11,9 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from repobrain.database.connection import create_database_engine, create_session_factory
+from repobrain.ingestion.github import IngestionError
+from repobrain.ingestion.routes import router as ingestion_router
+from repobrain.ingestion.service import IngestionService
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
 from repobrain.settings import Settings
 
@@ -18,7 +22,11 @@ class HealthResponse(BaseModel):
     status: Literal["healthy"] = "healthy"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    github_transport: httpx.AsyncBaseTransport | None = None,
+) -> FastAPI:
     settings = settings if settings is not None else Settings()
     configure_logging(settings.log_level_number)
 
@@ -31,13 +39,34 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         engine = create_database_engine(settings)
         app.state.database_sessions = create_session_factory(engine)
         try:
-            yield
+            async with httpx.AsyncClient(
+                trust_env=False,
+                transport=github_transport,
+                timeout=10,
+                limits=httpx.Limits(max_connections=settings.ingestion_concurrency),
+            ) as client:
+                service = IngestionService(
+                    app.state.database_sessions, client, settings
+                )
+                app.state.ingestion = service
+                try:
+                    yield
+                finally:
+                    app.state.ingestion = None
+                    await service.close()
         finally:
             await engine.dispose()
             app.state.database_sessions = None
 
     app = FastAPI(title="RepoBrain", lifespan=lifespan)
     app.add_middleware(RequestMiddleware)
+    app.include_router(ingestion_router)
+
+    @app.exception_handler(IngestionError)
+    async def handle_ingestion_error(
+        request: Request, exc: IngestionError
+    ) -> JSONResponse:
+        return error_response(request, exc.status, exc.code, exc.message)
 
     @app.exception_handler(HTTPException)
     async def handle_http_error(request: Request, exc: HTTPException) -> JSONResponse:

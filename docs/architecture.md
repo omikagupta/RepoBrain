@@ -39,19 +39,32 @@ Run Alembic before starting a deployment. CI and local integration tests run
 migrations against a separate fresh PostgreSQL instance with temporary
 storage. Tests check schema drift, CRUD, and database constraints.
 
+## Milestone 2B
+
+The ingestion API resolves a public GitHub repository and ref to a full commit
+SHA. It reads that commit's Git tree and requests eligible blobs by immutable
+ID from `api.github.com`. The worker never extracts archives, follows
+redirects, or invokes Git. Streaming response budgets and bounded concurrency
+limit memory and network use. Files remain in memory until the worker writes
+them in a transaction with the completion transition.
+
+PostgreSQL uniqueness and row locks deduplicate submissions across concurrent
+requests. Updates check the active attempt's timestamp so an expired worker
+cannot complete a retried job. Interrupted jobs can be retried under the same
+snapshot UUID. The worker runs in the FastAPI lifespan and is intended for
+one backend process.
+
 ## Planned architecture
 
-1. Resolve public Python GitHub repositories to immutable commit SHAs. Index
-   source files and retain paths and line ranges at the pinned commit.
-2. Parse Python source with the standard-library AST to build a dependency
+1. Parse Python source with the standard-library AST to build a dependency
    graph. Treat repository contents as untrusted input.
-3. Retrieve source passages with lexical and vector search. Optionally expand
+2. Retrieve source passages with lexical and vector search. Optionally expand
    the candidate set through bounded graph traversal.
-4. Generate evidence-backed answers with citations that link to the pinned
+3. Generate evidence-backed answers with citations that link to the pinned
    commit, file, and lines. Expose dependency relationships through a React
    explorer.
-5. Evaluate hybrid retrieval with and without graph expansion on the same
+4. Evaluate hybrid retrieval with and without graph expansion on the same
    pinned repositories and questions.
 
-Indexing, graph storage, retrieval, answer generation, and the explorer are
+Graph storage, retrieval, answer generation, and the explorer are
 planned capabilities. The backend has no external AI dependency.

@@ -147,3 +147,63 @@ the extension first.
 Never run destructive downgrades, drop schemas, delete named volumes, or reset
 persistent data without explicit approval and an appropriate backup.
 Integration tests must use only isolated disposable databases.
+
+## Ingest a public GitHub repository
+
+Start the migrated Compose stack using the commands above. Use `owner/name`
+only. Omit `ref` to resolve the repository's current default branch. You can
+also supply a branch, tag, fully qualified ref such as `refs/tags/v1`, or a
+full 40-character commit SHA.
+
+```powershell
+$base = 'http://127.0.0.1:8000'
+$body = @{ repository = 'pallets/click'; ref = '8.1.8' } | ConvertTo-Json
+$job = Invoke-RestMethod -Method Post -Uri "$base/api/v1/repositories/ingestions" `
+    -ContentType 'application/json' -Body $body
+Invoke-RestMethod "$base/api/v1/ingestions/$($job.snapshot_id)"
+```
+
+POST resolves the ref before returning `202` with the snapshot ID and a
+`Location` header. Repeat GET until the snapshot is `completed` or `failed`.
+POST returns `200` for a completed snapshot at the same commit. To retry a
+failed snapshot, submit the same repository with its resolved SHA. Submitting
+a branch again may resolve a newer commit. A full worker returns `429`; retry
+later or continue polling an already known snapshot. GitHub rate limits return
+`503` during resolution or fail an accepted job during fetching.
+
+To inspect the stored paths and hashes, restrict the query to the returned
+snapshot UUID. Run it from PowerShell with the development database running.
+
+```powershell
+$snapshot = ([guid]$job.snapshot_id).ToString()
+docker compose exec -T db psql -U repobrain -d repobrain -c "SELECT path, content_sha256, line_count FROM source_files WHERE snapshot_id = '$snapshot' ORDER BY path;"
+```
+
+### Limits and worker behavior
+
+Set these variables in the environment or local Compose `.env`.
+
+| Variable | Default | Applies to |
+| --- | ---: | --- |
+| `REPOBRAIN_INGESTION_MAX_FILES` | 200 | Candidate Python files after path and size filtering |
+| `REPOBRAIN_INGESTION_MAX_FILE_BYTES` | 262144 | Maximum file size in bytes |
+| `REPOBRAIN_INGESTION_MAX_TOTAL_BYTES` | 4194304 | Raw bytes retained, also bounding the next candidate download |
+| `REPOBRAIN_INGESTION_MAX_NETWORK_BYTES` | 12582912 | Total response body bytes across GitHub metadata, tree, and blobs |
+| `REPOBRAIN_INGESTION_TIMEOUT` | 60 | Seconds per phase for resolution and background ingestion |
+| `REPOBRAIN_INGESTION_CONCURRENCY` | 1 | Concurrent submissions and jobs combined per process |
+
+The worker moves from `pending` to `running` to `completed` or `failed`.
+Source files and completion commit in one transaction. A graceful shutdown
+cancels jobs and marks them failed. Polling or resubmitting marks an abandoned
+active snapshot failed after the configured timeout plus 15 seconds. The MVP
+uses one backend process and has no durable queue or automatic retries.
+
+Requests go to the official GitHub REST API over HTTPS. The worker ignores
+upstream URLs, rejects redirects, and sends no credentials. Each file comes
+from the resolved commit's tree by immutable blob ID. Only regular lowercase
+`.py` paths are eligible. Symlinks, submodules, oversized files, binary or
+invalid UTF-8 files, and common vendor and generated directories are skipped.
+Unsafe or duplicate paths and truncated trees fail the job. Source text is
+decoded as strict UTF-8 with no newline normalization. SHA-256 covers the
+original bytes. Line counts treat LF, CRLF, and bare CR as line breaks and
+include a final unterminated line. All tests use local GitHub fixtures.

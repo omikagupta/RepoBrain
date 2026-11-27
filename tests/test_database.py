@@ -1,17 +1,10 @@
-import asyncio
-import os
 from collections.abc import AsyncIterator
 from hashlib import sha256
-from pathlib import Path
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
-from alembic import command
-from alembic.config import Config
-from pydantic import SecretStr
-from sqlalchemy import inspect, select, text
-from sqlalchemy.engine import Connection
+from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,44 +19,6 @@ from repobrain.database.models import (
 from repobrain.settings import Settings
 
 pytestmark = pytest.mark.postgres
-
-
-def upgrade_fresh_database(connection: Connection) -> None:
-    database = connection.scalar(text("SELECT current_database()"))
-    vector_installed = connection.scalar(
-        text("SELECT EXISTS (SELECT FROM pg_extension WHERE extname = 'vector')")
-    )
-    if (
-        database != "repobrain_test"
-        or inspect(connection).get_table_names()
-        or vector_installed
-    ):
-        pytest.fail(
-            "PostgreSQL tests require a fresh disposable repobrain_test database"
-        )
-    config = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
-    config.attributes["connection"] = connection
-    command.upgrade(config, "head")
-    command.check(config)
-
-
-@pytest.fixture(scope="module")
-def migrated_database() -> Settings:
-    url = os.environ.get("REPOBRAIN_TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("Run the integration tests with compose.test.yaml")
-    settings = Settings(database_url=SecretStr(url))
-
-    async def migrate() -> None:
-        engine = create_database_engine(settings)
-        try:
-            async with engine.begin() as connection:
-                await connection.run_sync(upgrade_fresh_database)
-        finally:
-            await engine.dispose()
-
-    asyncio.run(migrate())
-    return settings
 
 
 @pytest_asyncio.fixture
