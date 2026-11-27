@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -379,5 +379,69 @@ async def test_empty_indexes_missing_provider_and_invalid_requests(
                         f"/api/v1/snapshots/{built}/search/vector", params=params
                     )
                 ).status_code == 422
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "code"),
+    [
+        ("removed", "vector_index_changed"),
+        ("model_revision", "vector_index_incompatible"),
+    ],
+)
+async def test_search_revalidates_after_paused_inference(
+    migrated_database: Settings,
+    change: str,
+    code: str,
+) -> None:
+    class PausedQuery(FakeProvider):
+        async def encode_queries(self, texts: Sequence[str]) -> list[list[float]]:
+            entered.set()
+            await release.wait()
+            return await super().encode_queries(texts)
+
+    entered, release = asyncio.Event(), asyncio.Event()
+    engine = create_database_engine(migrated_database)
+    sessions = create_session_factory(engine)
+    try:
+        snapshot = await seed(sessions, CORPUS)
+        await build_index(sessions, snapshot)
+        await vector.build_vector_index(sessions, snapshot, FakeProvider())
+        async with (
+            sessions() as reader,
+            asyncio.timeout(10),
+            asyncio.TaskGroup() as group,
+        ):
+
+            async def search() -> None:
+                with pytest.raises(ExplorationError) as error:
+                    await vector.vector_search(
+                        reader, snapshot, "read file", 10, PausedQuery()
+                    )
+                assert (error.value.status, error.value.code) == (409, code)
+
+            lookup = group.create_task(search())
+            try:
+                await entered.wait()
+                assert not reader.in_transaction()
+                async with sessions.begin() as writer:
+                    if change == "removed":
+                        await writer.execute(
+                            delete(VectorIndex).where(
+                                VectorIndex.snapshot_id == snapshot
+                            )
+                        )
+                    else:
+                        await writer.execute(
+                            update(VectorIndex)
+                            .where(VectorIndex.snapshot_id == snapshot)
+                            .values(model_revision="different")
+                        )
+            finally:
+                release.set()
+            await lookup
     finally:
         await engine.dispose()

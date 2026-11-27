@@ -263,6 +263,9 @@ async def vector_search(
         raise ExplorationError(
             422, "invalid_search_query", "Vector search requires a nonempty query"
         )
+    await session.execute(
+        text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+    )
     snapshot = await load_snapshot(session, snapshot_id)
     if snapshot.state != IngestionState.COMPLETED:
         raise ExplorationError(
@@ -285,9 +288,26 @@ async def vector_search(
     )
     if not index.chunk_count:
         return response
+    stamp = (index.completed_at, index.chunk_count)
     # Release the read transaction before potentially slow model initialization.
     await session.rollback()
     vector = normalize(await provider.encode_queries([query]), 1, DIMENSION)[0]
+    # Validate and rank against one MVCC snapshot, including the source evidence.
+    await session.execute(
+        text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
+    )
+    current = await load_snapshot(session, snapshot_id)
+    current_index = await session.get(VectorIndex, snapshot_id)
+    if (
+        current.identity != snapshot.identity
+        or current.state != IngestionState.COMPLETED
+        or current_index is None
+        or (current_index.completed_at, current_index.chunk_count) != stamp
+    ):
+        raise ExplorationError(
+            409, "vector_index_changed", "Vector index changed while encoding the query"
+        )
+    compatible(current_index, model)
     distance = ChunkEmbedding.embedding.cosine_distance(vector).label("distance")
     rows = (
         await session.execute(

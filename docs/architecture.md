@@ -190,11 +190,12 @@ selection does not imply a measured relevance or speed advantage.
 
 The model artifacts occupy about 165 MB on disk. Inference uses CPU only,
 with two intra-op threads, one inter-op thread, a maximum batch of eight,
-and one in-flight operation per provider. It also needs RAM for the ONNX
-session and activations. Model startup is lazy. Inference times out after
-60 seconds and requests that ONNX Runtime terminate. A native call can
-take time to unwind, and the provider keeps its slot occupied until it
-returns. Outputs may differ slightly across CPU architectures and
+and one active operation per provider. Two more operations may wait in order;
+additional requests receive HTTP 503. It also needs RAM for the ONNX
+session and activations. Model startup is lazy. The 60-second deadline
+covers both waiting and inference. A cancelled or timed-out active call
+requests ONNX termination and keeps its slot until the native call returns.
+Outputs may differ slightly across CPU architectures and
 package or runtime versions. The model hashes, runtime pins, token policy,
 and index metadata make the setup reproducible without guaranteeing
 bit-identical floating-point results across machines.
@@ -214,7 +215,10 @@ The API searches one snapshot and version using exact pgvector cosine
 distance, returning `1 - distance`. A B-tree supports scoping before the
 bounded exact scan. Equal distances use bytewise path, starting line, and
 stable chunk key to break ties. The response reuses persisted lexical
-evidence and its source hashes. There is no approximate index, relevance
+evidence and its source hashes. Inference runs without a database
+transaction. The API revalidates the index and reads ranked evidence in
+one fresh read-only transaction, returning HTTP 409 if the index changed.
+There is no approximate index, relevance
 threshold, reranking, or score fusion. Long chunks can lose model context
 to tokenizer truncation while their returned evidence remains intact.
 

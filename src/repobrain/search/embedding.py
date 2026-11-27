@@ -17,6 +17,7 @@ BATCH_SIZE = 8
 MAX_TOKENS = 512
 MAX_INPUT_BYTES = 8192
 INFERENCE_TIMEOUT = 60
+MAX_WAITING = 2
 
 
 class EmbeddingModel(BaseModel, frozen=True):
@@ -105,6 +106,8 @@ class LocalOnnxProvider:
         self.directory = directory
         self.runtime: tuple[Any, Any, Any, Any] | None = None
         self.task: asyncio.Task[list[list[float]]] | None = None
+        self.serial = asyncio.Lock()
+        self.admitted = 0
 
     def load(self) -> tuple[Any, Any, Any, Any]:
         if self.directory is None:
@@ -172,29 +175,42 @@ class LocalOnnxProvider:
             len(text.encode()) > MAX_INPUT_BYTES for text in texts
         ):
             raise unavailable("Embedding input exceeds the batch or byte limit")
-        if self.task is not None and not self.task.done():
+        if self.admitted >= 1 + MAX_WAITING:
             raise unavailable("Local embedding provider is busy")
-        job = Inference()
-        task = asyncio.create_task(asyncio.to_thread(self.infer, list(texts), job))
-        self.task = task
-        task.add_done_callback(consume_task_error)
+        self.admitted += 1
+        job: Inference | None = None
         try:
             async with asyncio.timeout(INFERENCE_TIMEOUT):
+                await self.serial.acquire()
+                job = Inference()
+                task = asyncio.create_task(
+                    asyncio.to_thread(self.infer, list(texts), job)
+                )
+                self.task = task
+                task.add_done_callback(self.finish)
                 return await asyncio.shield(task)
         except TimeoutError:
-            job.stop()
+            if job is not None:
+                job.stop()
             raise unavailable("Local embedding inference timed out") from None
         except asyncio.CancelledError:
-            job.stop()
+            if job is not None:
+                job.stop()
             raise
+        finally:
+            if job is None:
+                self.admitted -= 1
+
+    def finish(self, task: asyncio.Task[list[list[float]]]) -> None:
+        # The native call owns the slot even after its caller has left.
+        if not task.cancelled():
+            task.exception()
+        self.task = None
+        self.admitted -= 1
+        self.serial.release()
 
     async def encode_documents(self, texts: Sequence[str]) -> list[list[float]]:
         return await self.encode(texts)
 
     async def encode_queries(self, texts: Sequence[str]) -> list[list[float]]:
         return await self.encode(texts)
-
-
-def consume_task_error(task: asyncio.Task[list[list[float]]]) -> None:
-    if not task.cancelled():
-        task.exception()
