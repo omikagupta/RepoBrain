@@ -383,3 +383,32 @@ fixture.
   ]
 }
 ```
+
+## Query both indexes with hybrid search
+
+Build the lexical and vector indexes for the same completed snapshot using
+the commands above. Use the vector-enabled backend and its pinned model assets.
+
+```powershell
+$query = [uri]::EscapeDataString('read_file')
+$response = Invoke-RestMethod "$base/api/v1/snapshots/$snapshot/search/hybrid?q=$query&limit=10"
+$response.results | Select-Object rank, path, score, lexical_rank, vector_rank, permalink
+```
+
+`q` accepts up to 256 characters and must produce 1–32 distinct lexical terms.
+Punctuation-only queries return `422`. The `limit` is 1–30 and defaults to 10.
+Missing snapshots return `404`. Incomplete ingestion or missing, incompatible,
+or changed indexes return `409`. Unavailable inference returns `503`.
+A valid query with no lexical matches can still return vector matches.
+Two completed empty indexes return no hits and skip inference.
+
+The response includes the original query, repository, pinned commit, snapshot
+UUID, chunking and vector index versions, model metadata, and the `fusion` policy.
+Each result includes the original chunk and source file UUIDs, text, hashes,
+line range, pinned permalink, fused `rank` and `score`, and per-channel ranks,
+scores, and attribution. An absent channel contributes zero and its rank and
+score fields are null. The lexical and vector endpoints remain available as
+independent baselines.
+
+The [hybrid architecture notes](docs/architecture.md#milestone-4c) describe
+the fixed ranking policy and deterministic test fixture.

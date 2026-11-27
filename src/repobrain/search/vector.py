@@ -19,9 +19,7 @@ from repobrain.database.models import (
 from repobrain.graph.exploration import (
     ExplorationError,
     Identity,
-    checked_path,
     load_snapshot,
-    source_permalink,
 )
 from repobrain.search.chunking import VERSION
 from repobrain.search.embedding import (
@@ -32,7 +30,7 @@ from repobrain.search.embedding import (
     EmbeddingProvider,
     normalize,
 )
-from repobrain.search.service import Match
+from repobrain.search.service import Candidate, Match, make_match
 
 VECTOR_VERSION = "cosine-exact-v1"
 MAX_VECTOR_CHUNKS = 1000
@@ -308,6 +306,18 @@ async def vector_search(
             409, "vector_index_changed", "Vector index changed while encoding the query"
         )
     compatible(current_index, model)
+    response.results = [
+        candidate.match
+        for candidate in await vector_candidates(
+            session, current.identity, vector, limit
+        )
+    ]
+    return response
+
+
+async def vector_candidates(
+    session: AsyncSession, identity: Identity, vector: list[float], limit: int
+) -> list[Candidate]:
     distance = ChunkEmbedding.embedding.cosine_distance(vector).label("distance")
     rows = (
         await session.execute(
@@ -330,7 +340,7 @@ async def vector_search(
                 ),
             )
             .where(
-                ChunkEmbedding.snapshot_id == snapshot_id,
+                ChunkEmbedding.snapshot_id == identity.snapshot_id,
                 ChunkEmbedding.chunking_version == VERSION,
                 ChunkEmbedding.vector_version == VECTOR_VERSION,
             )
@@ -343,26 +353,7 @@ async def vector_search(
             .limit(limit)
         )
     ).all()
-    for rank, (chunk, path, value) in enumerate(rows, 1):
-        response.results.append(
-            Match(
-                **snapshot.identity.model_dump(),
-                chunk_id=chunk.id,
-                source_file_id=chunk.source_file_id,
-                path=path,
-                start_line=chunk.start_line,
-                end_line=chunk.end_line,
-                text=chunk.content,
-                source_sha256=chunk.source_sha256,
-                content_sha256=chunk.content_sha256,
-                score=1 - value,
-                rank=rank,
-                permalink=source_permalink(
-                    snapshot.identity,
-                    checked_path(path),
-                    chunk.start_line,
-                    chunk.end_line,
-                ),
-            )
-        )
-    return response
+    return [
+        Candidate(make_match(identity, chunk, path, 1 - value, rank), chunk.stable_key)
+        for rank, (chunk, path, value) in enumerate(rows, 1)
+    ]
