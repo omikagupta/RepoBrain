@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 from typing import Literal, Self
 
 from pydantic import Field, SecretStr, field_validator, model_validator
@@ -29,6 +30,7 @@ class Settings(BaseSettings):
     )
     ingestion_timeout: int = Field(default=60, ge=1, le=300)
     ingestion_concurrency: int = Field(default=1, ge=1, le=4)
+    vector_model_dir: Path | None = None
 
     @field_validator("database_url")
     @classmethod

@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import VECTOR
 from sqlalchemy import (
     CheckConstraint,
     Computed,
@@ -207,6 +208,9 @@ class SourceChunk(Base):
     __tablename__ = "source_chunks"
     __table_args__ = (
         UniqueConstraint(
+            "snapshot_id", "chunking_version", "id", name="uq_source_chunks_version_id"
+        ),
+        UniqueConstraint(
             "snapshot_id", "stable_key", name="uq_source_chunks_snapshot_key"
         ),
         ForeignKeyConstraint(
@@ -249,3 +253,66 @@ class SourceChunk(Base):
         TSVECTOR,
         Computed("to_tsvector('simple'::regconfig, token_text)", persisted=True),
     )
+
+
+class VectorIndex(Base):
+    __tablename__ = "vector_indexes"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id",
+            "chunking_version",
+            "vector_version",
+            name="uq_vector_indexes_version",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "chunking_version"],
+            ["search_indexes.snapshot_id", "search_indexes.chunking_version"],
+            name="fk_vector_indexes_lexical_index",
+            ondelete="CASCADE",
+        ),
+        CheckConstraint("dimension = 768", name="ck_vector_indexes_dimension"),
+    )
+
+    snapshot_id: Mapped[UUID] = mapped_column(primary_key=True)
+    chunking_version: Mapped[str] = mapped_column(String(24))
+    vector_version: Mapped[str] = mapped_column(String(24))
+    model_id: Mapped[str] = mapped_column(Text)
+    model_revision: Mapped[str] = mapped_column(Text)
+    dimension: Mapped[int]
+    encoding_policy: Mapped[str] = mapped_column(Text)
+    chunk_count: Mapped[int]
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class ChunkEmbedding(Base):
+    __tablename__ = "chunk_embeddings"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["snapshot_id", "chunking_version", "vector_version"],
+            [
+                "vector_indexes.snapshot_id",
+                "vector_indexes.chunking_version",
+                "vector_indexes.vector_version",
+            ],
+            name="fk_chunk_embeddings_vector_index",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "chunking_version", "chunk_id"],
+            [
+                "source_chunks.snapshot_id",
+                "source_chunks.chunking_version",
+                "source_chunks.id",
+            ],
+            name="fk_chunk_embeddings_source_chunk",
+        ),
+        Index("ix_chunk_embeddings_snapshot_version", "snapshot_id", "vector_version"),
+    )
+
+    chunk_id: Mapped[UUID] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[UUID]
+    chunking_version: Mapped[str] = mapped_column(String(24))
+    vector_version: Mapped[str] = mapped_column(String(24))
+    embedding: Mapped[list[float]] = mapped_column(VECTOR(768))
