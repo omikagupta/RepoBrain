@@ -4,5 +4,10 @@
 !README.md
 !src/
 !src/**
+!alembic.ini
+!migrations/
+!migrations/**
+!tests/
+!tests/**
 **/__pycache__/
 **/*.pyc

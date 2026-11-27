@@ -10,11 +10,21 @@ COPY README.md ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
 
+FROM builder AS test
+ENV PATH="/app/.venv/bin:$PATH"
+COPY alembic.ini ./
+COPY migrations ./migrations
+COPY tests ./tests
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-editable
+CMD ["pytest", "-m", "postgres"]
+
 FROM python:3.12-slim-bookworm AS runtime
 ENV PATH="/app/.venv/bin:$PATH" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid 10001 --no-create-home app
 COPY --from=builder /app/.venv /app/.venv
+COPY alembic.ini ./
+COPY migrations ./migrations
 USER 10001:10001
 EXPOSE 8000
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \

@@ -25,4 +25,9 @@ jobs:
       - run: uv run --locked ruff check .
       - run: uv run --locked ruff format --check .
       - run: uv run --locked mypy
-      - run: uv run --locked pytest
+      - run: uv run --locked pytest -m "not postgres"
+      - name: PostgreSQL integration tests
+        run: docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from tests
+      - name: Stop integration services
+        if: always()
+        run: docker compose -f compose.test.yaml down
