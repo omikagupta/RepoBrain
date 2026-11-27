@@ -335,21 +335,31 @@ generation. Later database changes cannot replace the evidence that was sent.
 Context takes up to 20 retrieved candidates in rank order and packs at most
 12 intact chunks into 32 KiB of serialized, ASCII-escaped evidence JSON.
 Oversized records are skipped and later records may fit. Only included chunks
-receive sequential IDs from E1 through E12. Questions are limited to 256
+receive sequential IDs from E1 through E12. Each model-facing record contains
+the ID, path, inclusive line range, exact source text and, where applicable,
+the ordered graph relationship types. Canonical UUIDs, hashes, URLs,
+retrieval ranks and scores, snapshot metadata and detailed graph provenance
+stay in the server's evidence records. Questions are limited to 256
 characters. The adapter bounds its serialized request body to 96 KiB,
 requests at most 1,500 output tokens, streams at most 64 KiB of response
 envelope, and accepts at most 16 KiB of model output text. The service applies
 one configurable total generation timeout, with no automatic retry. A
 per-process concurrency gate rejects excess requests immediately with
-HTTP 503 and releases capacity on cancellation or failure.
+HTTP 503 and releases capacity on cancellation or failure. The HTTP response
+and client close when cancellation or timeout interrupts the body stream.
 
 The `grounded-claims-v1` prompt sits in the system message. The question and
 evidence are separate JSON data messages. The provider receives zero tools
 and cannot ask RepoBrain to access any URL, run code, or read files or the
 database. The optional HTTP adapter accepts only a trusted operator-set URL,
 disables redirects and environment proxies, and sends the key only in the
-authorization header. Enabling a remote endpoint sends the question and
-included source evidence to that service.
+authorization header. It discards upstream error bodies and replaces
+upstream exceptions and validation details with fixed errors. Application
+logging suppresses HTTP wire diagnostics. Exact-copy checks on prompt data,
+validated drafts and public response data are secondary safeguards. String
+matching cannot detect arbitrary semantic or transformed echoes of secrets.
+Enabling a remote endpoint sends the question and included source evidence
+to that trusted service.
 
 The draft schema admits up to ten cited claims, each labeled as an observation
 or inference, and up to six limitations. An insufficient-evidence draft has

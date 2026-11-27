@@ -39,6 +39,10 @@ def configure_logging(level: int) -> None:
         application_logger.addHandler(handler)
     application_logger.setLevel(level)
     application_logger.propagate = False
+    # HTTP wire diagnostics can contain upstream headers. Keep them off even
+    # when application logging is set to DEBUG.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 def error_response(

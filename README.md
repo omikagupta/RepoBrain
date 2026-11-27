@@ -475,6 +475,9 @@ PostgreSQL. RepoBrain never downloads a generation model.
 
 The context preserves complete source chunks and their order, with up to 20
 retrieved candidates, 12 included chunks and 32 KiB of serialized evidence.
+The model gets citation IDs, paths, line ranges, exact text, and graph
+relationship types when available. Hashes, links, scores, snapshot identity,
+and full provenance stay server-side for citation resolution.
 The provider request body is bounded to 96 KiB, with a 256-character question
 limit and a 1,500-token output request limit. An empty usable context returns
 `insufficient_evidence` without calling the model. With usable evidence, an
@@ -502,3 +505,11 @@ actually sent to the model. Assessing whether the code supports a claim is
 a separate task. RepoBrain provides no execution tools, and untrusted source
 can still influence model behavior. See the
 [answer architecture and limits](docs/architecture.md#milestone-5b).
+
+The optional adapter sends the configured credential only as a bearer header.
+Provider error bodies and wire diagnostics are kept out of logs and API
+errors. Literal copies of the configured credential are rejected at the
+prompt and response boundaries as a secondary safeguard. String matching
+cannot reliably detect a model paraphrasing, encoding, or otherwise
+transforming a secret. Use a trusted provider and configure credentials
+only through the API key environment variable.

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from dataclasses import replace
 from hashlib import sha256
 from uuid import uuid4
@@ -32,6 +33,7 @@ from repobrain.answers.provider import (
     Generation,
     GenerationInput,
     OpenAICompatibleProvider,
+    json_bytes,
     request_body,
 )
 from repobrain.answers.routes import answer_question
@@ -40,6 +42,7 @@ from repobrain.database.models import SourceChunk
 from repobrain.graph.exploration import ExplorationError, Identity
 from repobrain.graph.service import analyze_snapshot
 from repobrain.main import create_app
+from repobrain.observability import configure_logging
 from repobrain.search.service import build_index
 from repobrain.search.vector import build_vector_index
 from repobrain.settings import Settings
@@ -86,7 +89,15 @@ def test_context_limits_and_citation_resolution() -> None:
     context = build_context([huge, evidence])
     assert context.truncated and len(context.serialized) <= MAX_EVIDENCE_BYTES
     assert context.evidence == (evidence,)
-    assert json.loads(context.serialized)["evidence"][0]["text"] == evidence.text
+    assert json.loads(context.serialized)["evidence"] == [
+        {
+            "citation_id": "E1",
+            "path": evidence.path,
+            "start_line": 1,
+            "end_line": 1,
+            "text": evidence.text,
+        }
+    ]
     many = build_context([example(identity) for _ in range(20)])
     assert many.truncated
     assert [item.citation_id for item in many.evidence] == [
@@ -196,7 +207,20 @@ async def test_backpressure_timeout_and_cancellation() -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "case",
-    ["ok", "rate", "redirect", "oversize", "bad", "tool", "timeout", "failure", "echo"],
+    [
+        "ok",
+        "rate",
+        "redirect",
+        "oversize",
+        "bad",
+        "tool",
+        "timeout",
+        "failure",
+        "echo",
+        "http_error",
+        "unsafe_exception",
+        "invalid_draft",
+    ],
 )
 async def test_openai_transport_is_bounded_and_sanitized(
     case: str,
@@ -235,6 +259,10 @@ async def test_openai_transport_is_bounded_and_sanitized(
             raise httpx.ReadTimeout(secret)
         if case == "failure":
             raise httpx.ConnectError(secret)
+        if case == "unsafe_exception":
+            raise ExplorationError(502, "invalid_generation_output", secret)
+        if case == "http_error":
+            return httpx.Response(401, text=secret, headers={"X-Fixture": secret})
         if case == "rate":
             return httpx.Response(429, text=secret)
         if case == "redirect":
@@ -246,6 +274,8 @@ async def test_openai_transport_is_bounded_and_sanitized(
         message: dict[str, object] = {"content": json.dumps(ANS)}
         if case == "tool":
             message["tool_calls"] = [{"id": "unsupported"}]
+        if case == "invalid_draft":
+            message["content"] = json.dumps({**ANS, "upstream_debug": secret})
         if case == "echo":
             message["content"] = json.dumps(
                 {**ANS, "claims": [{**CLAIM, "text": secret}]}
@@ -266,12 +296,120 @@ async def test_openai_transport_is_bounded_and_sanitized(
         assert result.usage is not None
         assert (result.usage.input_tokens, result.usage.output_tokens) == (90, 12)
     else:
+        with pytest.raises(ExplorationError) as direct:
+            await provider.generate(packet)
         with pytest.raises(ExplorationError) as caught:
             await manager.generate(packet)
         assert caught.value.status == {"timeout": 504, "rate": 503}.get(case, 502)
-        assert secret not in str(caught.value)
-    assert calls == 1 and manager.active == 0
+        assert secret not in str(caught.value) and secret not in str(direct.value)
+    assert calls == (1 if case == "ok" else 2) and manager.active == 0
     assert secret not in caplog.text and secret not in repr(settings)
+
+
+@pytest.mark.asyncio
+async def test_credential_in_question_or_evidence_is_blocked_before_http() -> None:
+    secret = "fixture-credential-kept-in-header"
+    settings = Settings(
+        generation_endpoint="http://127.0.0.1:1234/v1/chat/completions",
+        generation_model="fixture",
+        generation_api_key=SecretStr(secret),
+    )
+    calls = 0
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(500)
+
+    provider = OpenAICompatibleProvider(settings, transport=httpx.MockTransport(handle))
+    manager = Generation(provider, 2, 1)
+    for packet in (
+        GenerationInput(secret, b'{"evidence":[]}'),
+        GenerationInput(QUESTION, json_bytes({"evidence": [{"text": secret}]})),
+    ):
+        with pytest.raises(ExplorationError) as caught:
+            await manager.generate(packet)
+        assert caught.value.code == "generation_input_rejected"
+        assert secret not in str(caught.value)
+    with pytest.raises(ExplorationError) as public:
+        manager.check_public_response({"citations": [{"text": secret}]})
+    assert public.value.code == "invalid_generation_output"
+    assert calls == manager.active == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [True, False])
+async def test_delayed_http_response_releases_slot_and_closes_socket(
+    cancel: bool,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    secret = "fixture-wire-credential"
+    caplog.set_level(logging.DEBUG)
+    configure_logging(logging.DEBUG)
+    waiting = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
+        try:
+            headers = await reader.readuntil(b"\r\n\r\n")
+            assert f"Bearer {secret}".encode() in headers
+            length = next(
+                int(line.split(b":", 1)[1])
+                for line in headers.lower().splitlines()
+                if line.startswith(b"content-length:")
+            )
+            await reader.readexactly(length)
+            writer.write(
+                b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\nX-Fixture: "
+                + secret.encode()
+                + b"\r\n\r\n{"
+            )
+            await writer.drain()
+            waiting.set()
+            assert await reader.read() == b""
+            closed.set()
+        finally:
+            writer.close()
+            await writer.wait_closed()
+
+    async with await asyncio.start_server(handle, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        settings = Settings(
+            generation_endpoint=f"http://127.0.0.1:{port}/v1/chat/completions",
+            generation_model="fixture",
+            generation_api_key=SecretStr(secret),
+        )
+        manager = Generation(OpenAICompatibleProvider(settings), 10 if cancel else 1, 1)
+        async with asyncio.timeout(5):
+            task = asyncio.create_task(
+                manager.generate(
+                    GenerationInput(
+                        QUESTION,
+                        b'{"evidence":[]}',
+                    )
+                )
+            )
+            try:
+                await waiting.wait()
+                assert manager.active == 1
+                if cancel:
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+                else:
+                    with pytest.raises(ExplorationError) as timeout:
+                        await task
+                    assert timeout.value.code == "generation_timeout"
+                await closed.wait()
+                assert manager.active == 0
+            finally:
+                if not task.done():
+                    task.cancel()
+                    with pytest.raises(asyncio.CancelledError):
+                        await task
+    assert secret not in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -359,6 +497,17 @@ async def test_all_modes_and_canonical_citations(migrated_database: Settings) ->
                     assert (
                         cited.provenance.seed_chunk_id == result.citations[0].chunk_id
                     )
+                    sent = json.loads(provider.calls[-1].evidence_json)["evidence"][1]
+                    assert sent == {
+                        "citation_id": "E2",
+                        "path": "z_dependency.py",
+                        "start_line": 1,
+                        "end_line": 2,
+                        "text": helper,
+                        "relationships": [
+                            edge.relationship for edge in cited.provenance.edges
+                        ],
+                    }
                     assert cited.text == helper
                     assert (
                         cited.source_sha256

@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import Protocol
 
 import httpx
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
-from repobrain.answers.models import GeneratorIdentity, TokenUsage
+from repobrain.answers.models import Draft, GeneratorIdentity, TokenUsage
 from repobrain.graph.exploration import ExplorationError
 from repobrain.settings import Settings
 
@@ -58,6 +58,34 @@ def invalid_output() -> ExplorationError:
     return ExplorationError(
         502, "invalid_generation_output", "Invalid generation output"
     )
+
+
+def rejected_input() -> ExplorationError:
+    return ExplorationError(422, "generation_input_rejected", "Unsafe generation input")
+
+
+def timed_out() -> ExplorationError:
+    return ExplorationError(504, "generation_timeout", "Generation timed out")
+
+
+def provider_failed() -> ExplorationError:
+    return ExplorationError(502, "generation_failed", "Generation provider failed")
+
+
+def safe_provider_error(code: str) -> ExplorationError:
+    match code:
+        case "invalid_generation_output":
+            return invalid_output()
+        case "generation_input_rejected":
+            return rejected_input()
+        case "generation_timeout":
+            return timed_out()
+        case "generation_rate_limited":
+            return ExplorationError(
+                503, "generation_rate_limited", "Generation is rate limited"
+            )
+        case _:
+            return provider_failed()
 
 
 class ChatMessage(BaseModel):
@@ -114,13 +142,39 @@ class OpenAICompatibleProvider:
         self.identity = GeneratorIdentity(
             provider="openai-compatible", model=settings.generation_model
         )
-        self.api_key = settings.generation_api_key
+        self._api_key = settings.generation_api_key
         self.timeout = settings.generation_timeout
         self.transport = transport
 
     async def generate(self, request: GenerationInput) -> Generated:
+        try:
+            return await self._complete(request)
+        except (TimeoutError, httpx.TimeoutException):
+            raise timed_out() from None
+        except ExplorationError as exc:
+            raise safe_provider_error(exc.code) from None
+        except Exception:
+            raise provider_failed() from None
+
+    def has_literal_credential(self, value: object) -> bool:
+        if self._api_key is None:
+            return False
+        key = self._api_key.get_secret_value()
+        # Defense in depth for literal copies, including JSON-escaped text.
+        return bool(key) and json_bytes(key)[1:-1] in json_bytes(value)
+
+    async def _complete(self, request: GenerationInput) -> Generated:
+        if self.has_literal_credential(
+            (
+                self.endpoint,
+                self.identity.model,
+                request.question,
+                json.loads(request.evidence_json),
+            )
+        ):
+            raise rejected_input()
         headers = {"Content-Type": "application/json", "Accept-Encoding": "identity"}
-        key = self.api_key.get_secret_value() if self.api_key else None
+        key = self._api_key.get_secret_value() if self._api_key else None
         if key:
             headers["Authorization"] = f"Bearer {key}"
         body = request_body(self.identity.model, request)
@@ -140,9 +194,7 @@ class OpenAICompatibleProvider:
                     503, "generation_rate_limited", "Generation is rate limited"
                 )
             if response.status_code != 200:
-                raise ExplorationError(
-                    502, "generation_failed", "Generation provider failed"
-                )
+                raise provider_failed()
             if (
                 response.headers.get("Content-Encoding", "identity").lower()
                 != "identity"
@@ -155,7 +207,7 @@ class OpenAICompatibleProvider:
                 raw.extend(data)
         try:
             envelope = ChatResponse.model_validate_json(raw, strict=True)
-        except (ValidationError, ValueError):
+        except ValueError:
             raise invalid_output() from None
         choice = envelope.choices[0]
         if (
@@ -165,16 +217,14 @@ class OpenAICompatibleProvider:
         ):
             raise invalid_output()
         content = choice.message.content
-        # Normalize JSON escapes before checking for an echoed credential.
         try:
             if len(content.encode("utf-8")) > MAX_OUTPUT_BYTES:
                 raise invalid_output()
-            if key:
-                escaped_key = json.dumps(key)[1:-1]
-                if escaped_key in json.dumps(json.loads(content)):
-                    raise invalid_output()
+            draft = Draft.model_validate_json(content)
         except (ValueError, RecursionError):
             raise invalid_output() from None
+        if self.has_literal_credential(draft.model_dump()):
+            raise invalid_output()
         usage = None
         if envelope.usage is not None:
             usage = TokenUsage(
@@ -195,6 +245,16 @@ class Generation:
         self.capacity = capacity
         self.active = 0
 
+    def check_question(self, question: str) -> None:
+        if isinstance(self.provider, OpenAICompatibleProvider):
+            if self.provider.has_literal_credential(question):
+                raise rejected_input()
+
+    def check_public_response(self, response: object) -> None:
+        if isinstance(self.provider, OpenAICompatibleProvider):
+            if self.provider.has_literal_credential(response):
+                raise invalid_output()
+
     async def generate(self, request: GenerationInput) -> Generated:
         if self.provider is None:
             raise ExplorationError(
@@ -210,23 +270,10 @@ class Generation:
             async with asyncio.timeout(self.timeout):
                 return await self.provider.generate(request)
         except (TimeoutError, httpx.TimeoutException):
-            raise ExplorationError(
-                504, "generation_timeout", "Generation timed out"
-            ) from None
+            raise timed_out() from None
         except ExplorationError as exc:
-            # Preserve known controlled errors without trusting provider messages.
-            if exc.code == "invalid_generation_output":
-                raise invalid_output() from None
-            if exc.code == "generation_rate_limited":
-                raise ExplorationError(
-                    503, "generation_rate_limited", "Generation is rate limited"
-                ) from None
-            raise ExplorationError(
-                502, "generation_failed", "Generation provider failed"
-            ) from None
+            raise safe_provider_error(exc.code) from None
         except Exception:
-            raise ExplorationError(
-                502, "generation_failed", "Generation provider failed"
-            ) from None
+            raise provider_failed() from None
         finally:
             self.active -= 1

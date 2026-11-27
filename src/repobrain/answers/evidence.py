@@ -138,7 +138,17 @@ def build_context(candidates: Sequence[Evidence]) -> Context:
         if len(selected) == MAX_EVIDENCE:
             break
         included = evidence.model_copy(update={"citation_id": f"E{len(selected) + 1}"})
-        record = included.model_dump(mode="json")
+        record: dict[str, object] = {
+            "citation_id": included.citation_id,
+            "path": included.path,
+            "start_line": included.start_line,
+            "end_line": included.end_line,
+            "text": included.text,
+        }
+        if included.provenance is not None:
+            record["relationships"] = [
+                edge.relationship for edge in included.provenance.edges
+            ]
         encoded = json_bytes({"evidence": [*records, record]})
         if len(encoded) > MAX_EVIDENCE_BYTES:
             continue

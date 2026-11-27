@@ -66,6 +66,7 @@ async def answer_question(
 ) -> AnswerResponse:
     started = perf_counter()
     mode, question = payload.retrieval_mode, payload.question
+    generation.check_question(question)
     results: SearchResponse | VectorResponse | HybridResponse | GraphSearchResponse
     if mode == "lexical":
         await session.execute(
@@ -138,7 +139,7 @@ async def answer_question(
             limitations=["No retrieved source evidence fit the answer context."],
         )
     claims, citations = validate_citations(draft, context, identity)
-    return AnswerResponse(
+    response = AnswerResponse(
         **identity.model_dump(),
         question=question,
         retrieval=policy,
@@ -158,3 +159,5 @@ async def answer_question(
         total_ms=(perf_counter() - started) * 1000,
         usage=usage,
     )
+    generation.check_public_response(response.model_dump(mode="json"))
+    return response
