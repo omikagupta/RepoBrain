@@ -233,15 +233,46 @@ In a separate CPU smoke test, the real model indexed two chunks and ranked
 for “read text from a file path.” This verifies the provisioned model, CLI,
 and API together on a two-file example.
 
+## Milestone 4C
+
+Hybrid search reuses the standalone PostgreSQL ranking queries and chunk
+evidence. It introduces no schema or index changes. Both indexes must be
+complete, agree on chunk count and chunking version, and match the supported
+vector version and the configured model identity, revision, dimension, and
+encoding policy.
+
+The service checks both indexes in a read-only repeatable-read transaction.
+It closes that transaction before computing the query embedding. A fresh
+read-only repeatable-read transaction verifies the snapshot identity, index
+completion markers, counts, and compatibility before reading both candidate
+lists and the matching evidence. Changed or missing index metadata fails the
+request before fusion. Empty indexes require no inference.
+
+Policy `rrf-v1` reads up to 30 candidates from each channel independently of the
+requested result limit. It deduplicates by chunk UUID and sums
+`1 / (60 + rank)` for each channel where the chunk appears. Ranks start at one,
+both weights are one, and absent channels contribute zero without changing
+either weight. Raw lexical and cosine scores are retained for diagnostics.
+Fusion computes and compares exact fractions before serializing scores as
+JSON numbers. Equal scores are ordered by bytewise UTF-8 path, starting line,
+and stable chunk key. The first requested results receive consecutive ranks.
+
+Valid lexical queries without matches use a vector-only candidate list. Queries
+with no lexical terms receive HTTP 422. There is no cosine relevance threshold,
+so even low-similarity candidates can appear. Pool limits can exclude otherwise
+relevant chunks. Reproduction requires the same snapshot, indexes, model,
+encoding policy, and fusion policy. The deterministic fake-provider fixture in
+`tests/test_hybrid_search.py` checks exact scores derived from both baseline
+ranks, result order, and evidence identity. It does not measure retrieval quality.
+
 ## Planned architecture
 
-1. Combine lexical and vector search. Optionally expand
-   the candidate set through bounded graph traversal.
+1. Expand the hybrid candidate set through bounded graph traversal.
 2. Generate evidence-backed answers with citations that link to the pinned
    commit, file, and lines. Expose dependency relationships through a React
    explorer.
 3. Evaluate hybrid retrieval with and without graph expansion on the same
    pinned repositories and questions.
 
-Retrieval, answer generation, and the explorer are
-planned capabilities. The backend has no external AI dependency.
+Graph expansion, answer generation, and the explorer are planned capabilities.
+The backend has no external AI dependency.

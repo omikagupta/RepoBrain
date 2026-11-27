@@ -1,5 +1,6 @@
 import asyncio
 from collections import defaultdict
+from dataclasses import dataclass
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -117,32 +118,73 @@ async def build_index(
         )
 
 
-async def lexical_search(
-    session: AsyncSession,
-    snapshot_id: UUID,
-    query: str,
-    limit: int,
-) -> SearchResponse:
+@dataclass(frozen=True)
+class Candidate:
+    match: Match
+    stable_key: str
+
+
+def make_match(
+    identity: Identity, chunk: SourceChunk, path: str, value: float, rank: int
+) -> Match:
+    return Match(
+        **identity.model_dump(),
+        chunk_id=chunk.id,
+        source_file_id=chunk.source_file_id,
+        path=path,
+        start_line=chunk.start_line,
+        end_line=chunk.end_line,
+        text=chunk.content,
+        source_sha256=chunk.source_sha256,
+        content_sha256=chunk.content_sha256,
+        score=value,
+        rank=rank,
+        permalink=source_permalink(
+            identity, checked_path(path), chunk.start_line, chunk.end_line
+        ),
+    )
+
+
+def query_terms(query: str) -> list[str]:
     terms = list(dict.fromkeys(search_terms(query)))
     if not terms or len(terms) > MAX_QUERY_TERMS:
         raise ExplorationError(
             422, "invalid_search_query", "Search requires 1 to 32 distinct terms"
         )
+    return terms
+
+
+async def lexical_index(session: AsyncSession, snapshot_id: UUID) -> SearchIndex:
+    index = await session.get(SearchIndex, snapshot_id)
+    if index is None or index.chunking_version != VERSION:
+        raise ExplorationError(
+            409, "search_index_unavailable", "Compatible lexical index is unavailable"
+        )
+    return index
+
+
+async def lexical_search(
+    session: AsyncSession, snapshot_id: UUID, query: str, limit: int
+) -> SearchResponse:
+    terms = query_terms(query)
     snapshot = await load_snapshot(session, snapshot_id)
     if snapshot.state != IngestionState.COMPLETED:
         raise ExplorationError(
             409, "snapshot_incomplete", "Snapshot ingestion is incomplete"
         )
-    version = await session.scalar(
-        select(SearchIndex.chunking_version).where(
-            SearchIndex.snapshot_id == snapshot_id
-        )
+    index = await lexical_index(session, snapshot_id)
+    candidates = await lexical_candidates(session, snapshot.identity, terms, limit)
+    return SearchResponse(
+        **snapshot.identity.model_dump(),
+        query=query,
+        chunking_version=index.chunking_version,
+        results=[candidate.match for candidate in candidates],
     )
-    if version != VERSION:
-        raise ExplorationError(
-            409, "search_index_unavailable", "Compatible lexical index is unavailable"
-        )
 
+
+async def lexical_candidates(
+    session: AsyncSession, identity: Identity, terms: list[str], limit: int
+) -> list[Candidate]:
     tsquery = func.plainto_tsquery(
         literal_column("'simple'::regconfig"), " ".join(map(lexeme, terms))
     )
@@ -159,8 +201,8 @@ async def lexical_search(
                 ),
             )
             .where(
-                SourceChunk.snapshot_id == snapshot_id,
-                SourceChunk.chunking_version == version,
+                SourceChunk.snapshot_id == identity.snapshot_id,
+                SourceChunk.chunking_version == VERSION,
                 SourceChunk.search_vector.bool_op("@@")(tsquery),
             )
             .order_by(
@@ -172,26 +214,7 @@ async def lexical_search(
             .limit(limit)
         )
     ).all()
-    identity = snapshot.identity.model_dump()
-    results = [
-        Match(
-            **identity,
-            chunk_id=chunk.id,
-            source_file_id=chunk.source_file_id,
-            path=path,
-            start_line=chunk.start_line,
-            end_line=chunk.end_line,
-            text=chunk.content,
-            source_sha256=chunk.source_sha256,
-            content_sha256=chunk.content_sha256,
-            score=value,
-            rank=rank,
-            permalink=source_permalink(
-                snapshot.identity, checked_path(path), chunk.start_line, chunk.end_line
-            ),
-        )
+    return [
+        Candidate(make_match(identity, chunk, path, value, rank), chunk.stable_key)
         for rank, (chunk, path, value) in enumerate(rows, 1)
     ]
-    return SearchResponse(
-        **identity, query=query, chunking_version=version, results=results
-    )
