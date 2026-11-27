@@ -168,6 +168,71 @@ for `load_item`.
 | 2 | `examples/a.py` | 1 | 0.057308755815029144 |
 | 3 | `examples/é #?%.py` | 1 | 0.057308755815029144 |
 
+## Milestone 4B
+
+The optional local provider uses the upstream
+[Jina code embedding model](https://huggingface.co/jinaai/jina-embeddings-v2-base-code)
+at revision `516f4baf13dec4ddddda8631e019b5737c8bc250`, licensed Apache-2.0.
+Its model card describes joint natural-language and programming-language
+embeddings and recommends attention-mask mean pooling. The provider uses
+the pinned quantized ONNX graph with one raw-text policy for documents and
+queries, truncates at 512 tokenizer tokens including special tokens, and
+L2-normalizes the 768-dimensional result. It loads verified local data
+files through ONNX Runtime and Tokenizers, without a model download or
+dynamic model-code loading. The optional Python dependencies are pinned in
+`pyproject.toml` and `uv.lock`.
+
+We chose the upstream quantized code checkpoint over
+[BGE Small English](https://huggingface.co/BAAI/bge-small-en-v1.5) because
+Jina documents training for code and natural-language retrieval. BGE Small
+has fewer dimensions and is a useful general-text alternative. The
+selection does not imply a measured relevance or speed advantage.
+
+The model artifacts occupy about 165 MB on disk. Inference uses CPU only,
+with two intra-op threads, one inter-op thread, a maximum batch of eight,
+and one active operation per provider. Two more operations may wait in order;
+additional requests receive HTTP 503. It also needs RAM for the ONNX
+session and activations. Model startup is lazy. The 60-second deadline
+covers both waiting and inference. A cancelled or timed-out active call
+requests ONNX termination and keeps its slot until the native call returns.
+Outputs may differ slightly across CPU architectures and
+package or runtime versions. The model hashes, runtime pins, token policy,
+and index metadata make the setup reproducible without guaranteeing
+bit-identical floating-point results across machines.
+
+`vector_indexes` records the snapshot, lexical and vector versions,
+model ID and revision, dimension, encoding policy, chunk count, and
+completion time. Each `chunk_embeddings` row references a persisted
+lexical chunk through composite foreign keys that enforce snapshot and
+version consistency. The builder reads at most 1,000 existing chunks,
+computes embeddings outside the database transaction, then verifies the
+input identities and hashes under a snapshot row lock before publishing
+the marker and vectors atomically. A build has a ten-minute deadline.
+Concurrent builders can duplicate inference, but only one publishes.
+Completed indexes are checked for exact compatibility and reused.
+
+The API searches one snapshot and version using exact pgvector cosine
+distance, returning `1 - distance`. A B-tree supports scoping before the
+bounded exact scan. Equal distances use bytewise path, starting line, and
+stable chunk key to break ties. The response reuses persisted lexical
+evidence and its source hashes. Inference runs without a database
+transaction. The API revalidates the index and reads ranked evidence in
+one fresh read-only transaction, returning HTTP 409 if the index changed.
+There is no approximate index, relevance
+threshold, reranking, or score fusion. Long chunks can lose model context
+to tokenizer truncation while their returned evidence remains intact.
+
+The synthetic corpus in `tests/test_vector_retrieval.py` uses a deterministic
+two-coordinate fake provider padded to 768 dimensions. PostgreSQL ranked
+`a.py` and `src/é #%.py` at 1.0, `near.py` at approximately 0.6, and
+`far.py` at −1.0. This checks cosine semantics, tie-breaking, and evidence
+identity. It measures no real-model quality.
+
+In a separate CPU smoke test, the real model indexed two chunks and ranked
+`reader.py` (0.6292623281478882) ahead of `math.py` (−0.04928473383188248)
+for “read text from a file path.” This verifies the provisioned model, CLI,
+and API together on a two-file example.
+
 ## Planned architecture
 
 1. Combine lexical and vector search. Optionally expand

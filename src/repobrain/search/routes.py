@@ -1,11 +1,13 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 
 from repobrain.graph.routes import Db
 from repobrain.ingestion.routes import ErrorEnvelope
+from repobrain.search.embedding import EmbeddingProvider, unavailable
 from repobrain.search.service import SearchResponse, lexical_search
+from repobrain.search.vector import VectorResponse, vector_search
 
 router = APIRouter(
     prefix="/api/v1/snapshots/{snapshot_id}/search",
@@ -22,3 +24,19 @@ async def search(
     limit: Annotated[int, Query(ge=1, le=30)] = 10,
 ) -> SearchResponse:
     return await lexical_search(session, snapshot_id, q, limit)
+
+
+@router.get("/vector", summary="Rank persisted chunks by exact cosine similarity")
+async def semantic_search(
+    snapshot_id: UUID,
+    session: Db,
+    request: Request,
+    q: Annotated[str, Query(min_length=1, max_length=512)],
+    limit: Annotated[int, Query(ge=1, le=30)] = 10,
+) -> VectorResponse:
+    provider: EmbeddingProvider | None = getattr(
+        request.app.state, "embedding_provider", None
+    )
+    if provider is None:
+        raise unavailable("Embedding provider is unavailable")
+    return await vector_search(session, snapshot_id, q, limit, provider)

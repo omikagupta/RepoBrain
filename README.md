@@ -316,3 +316,70 @@ text, both SHA-256 hashes, and a permalink for the pinned commit and
 inclusive line range. Search uses exact case-folded tokens and a PostgreSQL
 full-text score. The [architecture notes](docs/architecture.md#milestone-4a)
 describe identifier handling, ranking, and build limits.
+
+## Build and query a vector index
+
+Vector search uses the Apache-2.0 model `jinaai/jina-embeddings-v2-base-code`
+at revision `516f4baf13dec4ddddda8631e019b5737c8bc250`. The quantized ONNX
+model runs on CPU and returns 768-dimensional embeddings. Install the
+optional inference dependencies only where you build or query vector indexes.
+
+```powershell
+uv sync --locked --extra vector
+```
+
+Provision the two assets explicitly on a machine with network access. This
+step downloads about 165 MB. You can copy the resulting directory to an
+offline machine. RepoBrain verifies both files against pinned SHA-256 digests.
+
+```powershell
+$revision = '516f4baf13dec4ddddda8631e019b5737c8bc250'
+$modelBase = "https://huggingface.co/jinaai/jina-embeddings-v2-base-code/resolve/$revision"
+$modelDir = Join-Path (Get-Location) '.venv-uv-cache/jina-model'
+New-Item -ItemType Directory -Force $modelDir | Out-Null
+Invoke-WebRequest "$modelBase/tokenizer.json" -OutFile (Join-Path $modelDir 'tokenizer.json')
+Invoke-WebRequest "$modelBase/onnx/model_quantized.onnx" -OutFile (Join-Path $modelDir 'model_quantized.onnx')
+$env:REPOBRAIN_VECTOR_MODEL_DIR = (Resolve-Path $modelDir).Path
+```
+
+Apply Alembic head and build the snapshot's lexical index first. With a
+database URL configured, run the vector build separately.
+
+```powershell
+$snapshot = ([guid]$job.snapshot_id).ToString()
+uv run --locked --extra vector python -m repobrain.search.vector_cli $snapshot
+```
+
+For Docker, the optional Compose override installs CPU dependencies during
+the image build and mounts the already provisioned assets read-only.
+
+```powershell
+docker compose -f compose.yaml -f compose.vector.yaml up -d --build
+docker compose -f compose.yaml -f compose.vector.yaml run --rm --no-deps backend python -m repobrain.search.vector_cli $snapshot
+$query = [uri]::EscapeDataString('read text from a file path')
+Invoke-RestMethod "$base/api/v1/snapshots/$snapshot/search/vector?q=$query&limit=10"
+```
+
+The endpoint returns the original query, pinned repository and commit,
+`model`, `chunking_version`, `vector_version`, and ranked `results`.
+Each result includes the same chunk UUID, original text, hashes, and
+permalink as its lexical counterpart. Scores are cosine similarity in
+the range −1 to 1, with higher scores ranking first. A missing or incompatible
+index returns `409`, unavailable inference returns `503`, and invalid
+parameters return `422`. Empty completed indexes return empty results
+without loading the model. See the
+[vector architecture notes](docs/architecture.md#milestone-4b) for limits.
+
+The following response excerpt comes from the deterministic fake-provider
+fixture.
+
+```json
+{
+  "query": "read from disk",
+  "vector_version": "cosine-exact-v1",
+  "metric": "cosine_similarity",
+  "results": [
+    {"rank": 1, "path": "a.py", "start_line": 1, "end_line": 1, "score": 1.0}
+  ]
+}
+```

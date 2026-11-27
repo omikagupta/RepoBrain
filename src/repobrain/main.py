@@ -17,6 +17,7 @@ from repobrain.ingestion.github import IngestionError
 from repobrain.ingestion.routes import router as ingestion_router
 from repobrain.ingestion.service import IngestionService
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
+from repobrain.search.embedding import EmbeddingProvider, LocalOnnxProvider
 from repobrain.search.routes import router as search_router
 from repobrain.settings import Settings
 
@@ -29,6 +30,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     github_transport: httpx.AsyncBaseTransport | None = None,
+    embedding_provider: EmbeddingProvider | None = None,
 ) -> FastAPI:
     settings = settings if settings is not None else Settings()
     configure_logging(settings.log_level_number)
@@ -62,6 +64,11 @@ def create_app(
             app.state.database_sessions = None
 
     app = FastAPI(title="RepoBrain", lifespan=lifespan)
+    app.state.embedding_provider = (
+        embedding_provider
+        if embedding_provider is not None
+        else LocalOnnxProvider(settings.vector_model_dir)
+    )
     app.add_middleware(RequestMiddleware)
     app.include_router(ingestion_router)
     app.include_router(graph_router)

@@ -8,7 +8,10 @@ COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-install-project
 COPY README.md ./
 COPY src ./src
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --no-dev --no-editable
+ARG VECTOR_EXTRA=0
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$VECTOR_EXTRA" = "1" ]; then set -- --extra vector; else set --; fi; \
+    uv sync --locked --no-dev --no-editable "$@"
 
 FROM builder AS test
 ENV PATH="/app/.venv/bin:$PATH"

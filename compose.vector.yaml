@@ -1,0 +1,12 @@
+services:
+  backend:
+    build:
+      args:
+        VECTOR_EXTRA: "1"
+    environment:
+      REPOBRAIN_VECTOR_MODEL_DIR: /models/jina
+    volumes:
+      - type: bind
+        source: ${REPOBRAIN_VECTOR_MODEL_DIR:?Set REPOBRAIN_VECTOR_MODEL_DIR to the pinned model directory}
+        target: /models/jina
+        read_only: true
