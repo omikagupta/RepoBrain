@@ -11,6 +11,8 @@ from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 from repobrain.database.connection import create_database_engine, create_session_factory
+from repobrain.graph.exploration import ExplorationError
+from repobrain.graph.routes import router as graph_router
 from repobrain.ingestion.github import IngestionError
 from repobrain.ingestion.routes import router as ingestion_router
 from repobrain.ingestion.service import IngestionService
@@ -61,6 +63,13 @@ def create_app(
     app = FastAPI(title="RepoBrain", lifespan=lifespan)
     app.add_middleware(RequestMiddleware)
     app.include_router(ingestion_router)
+    app.include_router(graph_router)
+
+    @app.exception_handler(ExplorationError)
+    async def handle_exploration_error(
+        request: Request, exc: ExplorationError
+    ) -> JSONResponse:
+        return error_response(request, exc.status, exc.code, exc.message)
 
     @app.exception_handler(IngestionError)
     async def handle_ingestion_error(

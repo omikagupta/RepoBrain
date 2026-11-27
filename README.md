@@ -234,3 +234,59 @@ other executable top-level statements. Unresolved imports and syntax errors
 are recorded as diagnostics. See the
 [architecture overview](docs/architecture.md#milestone-3a) for resolution
 rules and analysis limits.
+
+## Explore a snapshot graph
+
+The following GET endpoints use `/api/v1/snapshots/{snapshot_id}` as their
+prefix. The first four require a completed graph. A missing snapshot returns
+`404`; an existing snapshot without an analysis returns
+`409 graph_not_analyzed`. A successfully analyzed empty graph returns zero
+counts and empty pages.
+
+| Endpoint | Query parameters and result |
+| --- | --- |
+| `/graph` | Canonical repository, pinned SHA, counts and supported relationships |
+| `/nodes` | `kind`, literal `qualified_name_prefix`, exact `path`, `limit`, `cursor`. Returns stable UUIDs, source spans, and async flags. |
+| `/edges` | `relationship`, `source_id`, `target_id`, `limit`, `cursor`. Returns directed edges and stored provenance. |
+| `/neighborhood` | `node_id` required, `direction` defaults to `both`, `depth` defaults to 1 and permits 2, optional repeated `relationship` |
+| `/source` | Exact POSIX `path` required, optional inclusive `start_line` and `end_line`. Requires completed ingestion. |
+
+```powershell
+$graphBase = "$base/api/v1/snapshots/$snapshot"
+Invoke-RestMethod "$graphBase/graph"
+$page = Invoke-RestMethod "$graphBase/nodes?kind=function&limit=25"
+if ($page.next_cursor) {
+    $cursor = [uri]::EscapeDataString($page.next_cursor)
+    Invoke-RestMethod "$graphBase/nodes?kind=function&limit=25&cursor=$cursor"
+}
+if ($page.items.Count -gt 0) {
+    $node = $page.items[0].id
+    Invoke-RestMethod "$graphBase/edges?source_id=$node"
+    Invoke-RestMethod "$graphBase/neighborhood?node_id=$node&direction=outgoing&depth=2"
+    $path = [uri]::EscapeDataString($page.items[0].path)
+    Invoke-RestMethod "$graphBase/source?path=$path&start_line=1&end_line=10"
+}
+```
+
+Node and edge pages use ascending stable keys. `limit` defaults to 50 and
+permits 1–100. Reuse `next_cursor` with the original snapshot, endpoint, and
+filters. You can change the page size. Cursors are opaque and valid for the
+backend process that issued them. Restart pagination after a process restart
+or an invalid cursor response.
+
+Neighborhoods are breadth-first and include the center. They follow incoming,
+outgoing, or both directions while preserving each edge's original direction.
+The response contains up to 100 nodes and 200 edges. On reaching either cap,
+it returns a deterministic partial graph with `truncated: true`.
+
+Source responses return stored text with original line numbers and a SHA-256
+for the complete stored file. The default window starts at line 1 and returns
+at most 200 lines. Supplying only a start line shifts that window. A requested
+end beyond EOF is clipped. The response rejects windows over 200 lines or
+64 KiB of serialized line data, and rejects starts beyond EOF for nonempty
+files. It omits newline terminators while recognizing LF, CRLF, and bare CR.
+An empty file returns no lines, null actual range bounds, and a file link
+without a line fragment. The permalink is constructed from the verified
+stored repository, exact commit and encoded path, with the actual range in
+the fragment. The backend makes no live GitHub request to check whether the
+link is still accessible.

@@ -96,6 +96,27 @@ per file, and 4 MiB of source total. Limits also cover 300,000 AST nodes,
 diagnostics. Symbol names and import labels are limited to 1 KiB.
 Exceeding a limit aborts the transaction.
 
+## Milestone 3B
+
+The graph exploration router reads graph summaries, nodes, edges,
+neighborhoods, and source windows from the existing PostgreSQL tables.
+Queries filter by snapshot UUID and check the committed analysis marker
+before serving graph data. Source windows use completed ingestion data
+independently of the analysis marker. The API does not write or rebuild
+graphs.
+
+Node and edge pages use the snapshot/stable-key unique indexes for keyset
+pagination. A process-local HMAC binds each cursor to its resource, snapshot,
+and active filters. Neighborhood traversal uses one bounded edge query per
+frontier and one batched node query. It returns a deterministic partial result
+when it would exceed 100 nodes or 200 edges.
+
+Source evidence exposes an inclusive line window and the full file's SHA-256.
+The byte cap bounds serialized line data, and source outside the window is
+excluded from the response. Permalinks use canonical stored repository
+identity, an immutable SHA, a safely encoded path, and the actual returned
+line range. No API call to GitHub is needed.
+
 ## Planned architecture
 
 1. Retrieve source passages with lexical and vector search. Optionally expand
