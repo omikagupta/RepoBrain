@@ -444,3 +444,72 @@ edges add `x_bridge.py` and the module and helper chunks in `z_dependency.py`
 at ranks 2–4. Each gets a graph contribution of `3/122`. The fixture uses fake
 embeddings and checks graph paths and exact citations. Retrieval quality
 remains unevaluated.
+
+## Generate an answer from pinned source evidence
+
+Configure a trusted OpenAI-compatible chat-completions endpoint and an
+explicit model. The endpoint must support `response_format: json_object`
+and `max_tokens`. HTTPS is required except for HTTP on literal loopback
+addresses. With Docker, the address must be reachable from the backend
+container. Set the API key in the process environment when the provider
+requires it. Keep secrets out of project files and terminal output.
+
+```powershell
+$env:REPOBRAIN_GENERATION_ENDPOINT = 'https://llm.example.invalid/v1/chat/completions'
+$env:REPOBRAIN_GENERATION_MODEL = 'your-configured-model'
+$env:REPOBRAIN_GENERATION_TIMEOUT = '30'
+$env:REPOBRAIN_GENERATION_CONCURRENCY = '2'
+# Use the actual trusted endpoint and model before restarting the backend.
+docker compose -f compose.yaml -f compose.vector.yaml up -d backend
+$body = @{ question = 'How does repository ingestion work?'; retrieval_mode = 'graph-enhanced' } | ConvertTo-Json
+$answer = Invoke-RestMethod -Method Post -ContentType 'application/json' -Body $body -Uri "$base/api/v1/snapshots/$snapshot/answer"
+$answer.claims
+$answer.citations | Select-Object citation_id, path, start_line, end_line, permalink
+```
+
+Choose `lexical`, `vector`, `hybrid`, or `graph-enhanced` (default). Build the
+required indexes and graph as for the search endpoints. Generation requires
+no live provider for tests or for retrieval-only development. You can use
+a compatible local model or run the offline test suite with disposable
+PostgreSQL. RepoBrain never downloads a generation model.
+
+The context preserves complete source chunks and their order, with up to 20
+retrieved candidates, 12 included chunks and 32 KiB of serialized evidence.
+The model gets citation IDs, paths, line ranges, exact text, and graph
+relationship types when available. Hashes, links, scores, snapshot identity,
+and full provenance stay server-side for citation resolution.
+The provider request body is bounded to 96 KiB, with a 256-character question
+limit and a 1,500-token output request limit. An empty usable context returns
+`insufficient_evidence` without calling the model. With usable evidence, an
+unconfigured, busy, or rate-limited provider returns HTTP 503. Timeout
+returns 504. Invalid provider responses or citations return 502.
+
+The synthetic fixture's deterministic provider returns the following claim
+fields. Canonical evidence in that response links E1 to `a.py#L1-L2` and E2 to
+`z_dependency.py#L1-L2` on the exact stored commit.
+
+```json
+{
+  "status": "answered",
+  "citation_status": "structurally_valid",
+  "claims": [
+    {"text": "The entry point imports a helper.", "kind": "observation", "citations": ["E1"]},
+    {"text": "The helper returns the fixture string.", "kind": "observation", "citations": ["E2"]}
+  ],
+  "usage": null
+}
+```
+
+A successful citation check guarantees that cited IDs resolve to evidence
+actually sent to the model. Assessing whether the code supports a claim is
+a separate task. RepoBrain provides no execution tools, and untrusted source
+can still influence model behavior. See the
+[answer architecture and limits](docs/architecture.md#milestone-5b).
+
+The optional adapter sends the configured credential only as a bearer header.
+Provider error bodies and wire diagnostics are kept out of logs and API
+errors. Literal copies of the configured credential are rejected at the
+prompt and response boundaries as a secondary safeguard. String matching
+cannot reliably detect a model paraphrasing, encoding, or otherwise
+transforming a secret. Use a trusted provider and configure credentials
+only through the API key environment variable.

@@ -321,13 +321,68 @@ hybrid candidate pool contains neither `z_dependency.py` chunk. The path
 back edge from `x_bridge` to `a` does not revisit the seed. This fixture uses
 fake embeddings and demonstrates functionality only.
 
+## Milestone 5B
+
+The answer service dispatches to one of the four independent retrieval modes
+and keeps its ordering, scores, policy metadata, and graph provenance.
+Graph-enhanced is the default. Each mode retains its prerequisites. The
+service re-reads the selected version's chunks and source files inside the
+same read-only database snapshot used for ranking. It checks repository and
+snapshot identity, both SHA-256 hashes, and the original inclusive source
+slice, then rebuilds the permalink. It closes the read transaction before
+generation. Later database changes cannot replace the evidence that was sent.
+
+Context takes up to 20 retrieved candidates in rank order and packs at most
+12 intact chunks into 32 KiB of serialized, ASCII-escaped evidence JSON.
+Oversized records are skipped and later records may fit. Only included chunks
+receive sequential IDs from E1 through E12. Each model-facing record contains
+the ID, path, inclusive line range, exact source text and, where applicable,
+the ordered graph relationship types. Canonical UUIDs, hashes, URLs,
+retrieval ranks and scores, snapshot metadata and detailed graph provenance
+stay in the server's evidence records. Questions are limited to 256
+characters. The adapter bounds its serialized request body to 96 KiB,
+requests at most 1,500 output tokens, streams at most 64 KiB of response
+envelope, and accepts at most 16 KiB of model output text. The service applies
+one configurable total generation timeout, with no automatic retry. A
+per-process concurrency gate rejects excess requests immediately with
+HTTP 503 and releases capacity on cancellation or failure. The HTTP response
+and client close when cancellation or timeout interrupts the body stream.
+
+The `grounded-claims-v1` prompt sits in the system message. The question and
+evidence are separate JSON data messages. The provider receives zero tools
+and cannot ask RepoBrain to access any URL, run code, or read files or the
+database. The optional HTTP adapter accepts only a trusted operator-set URL,
+disables redirects and environment proxies, and sends the key only in the
+authorization header. It discards upstream error bodies and replaces
+upstream exceptions and validation details with fixed errors. Application
+logging suppresses HTTP wire diagnostics. Exact-copy checks on prompt data,
+validated drafts and public response data are secondary safeguards. String
+matching cannot detect arbitrary semantic or transformed echoes of secrets.
+Enabling a remote endpoint sends the question and included source evidence
+to that trusted service.
+
+The draft schema admits up to ten cited claims, each labeled as an observation
+or inference, and up to six limitations. An insufficient-evidence draft has
+no claims and at least one limitation. The service resolves IDs against the
+materialized context, deduplicates references, and returns server-built
+citations. Free-text fields are plain text for clients to display safely.
+Structural validity establishes source identity and citation scope. Semantic
+support and answer correctness require separate evaluation. Prompt injection
+cannot be eliminated because the model still reads untrusted source.
+
+Responses expose retrieval, generation and total latency, serialized evidence
+size, retrieval policy, prompt and model identifiers, and reported token usage
+when available. Empty contexts skip generation, even with a configured
+provider. Offline CI uses deterministic fake and mock providers. The
+synthetic `read_file` integration fixture exercises an answer with two
+canonical citations, `a.py#L1-L2` and `z_dependency.py#L1-L2`, connected by a
+stored import edge. It demonstrates the data flow and citation checks.
+Real-model accuracy remains unevaluated.
+
 ## Planned architecture
 
-1. Generate evidence-backed answers with citations that link to the pinned
-   commit, file, and lines. Expose dependency relationships through a React
-   explorer.
-2. Evaluate hybrid retrieval with and without graph expansion on the same
-   pinned repositories and questions.
+1. Expose dependency relationships through a React explorer.
+2. Evaluate retrieval and grounded answers on the same pinned repositories
+   and labeled questions.
 
-Answer generation and the explorer are planned capabilities.
-The backend has no external AI dependency.
+Local development and routine CI work without an external AI provider.
