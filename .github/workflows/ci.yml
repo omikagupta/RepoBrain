@@ -28,6 +28,10 @@ jobs:
       - run: uv run --locked pytest -m "not postgres"
       - name: PostgreSQL integration tests
         run: docker compose -f compose.test.yaml up --build --abort-on-container-exit --exit-code-from tests
+      - name: Non-root graph runtime smoke test
+        run: docker compose -p repobrain-graph-runtime -f compose.test.yaml run --build --rm runtime-graph-smoke
       - name: Stop integration services
         if: always()
-        run: docker compose -f compose.test.yaml down
+        run: |
+          docker compose -f compose.test.yaml down
+          docker compose -p repobrain-graph-runtime -f compose.test.yaml down

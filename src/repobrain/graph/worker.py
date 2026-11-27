@@ -13,9 +13,10 @@ def main() -> int:
         files = files_adapter.validate_json(sys.stdin.buffer.read())
         graph = Analyzer(UUID(sys.argv[1]), files).build()
         sys.stdout.buffer.write(graph.model_dump_json().encode("utf-8"))
-    except GraphError as exc:
-        sys.stdout.buffer.write(str(exc).encode("ascii"))
+    except GraphError:
         return 2
+    except Exception:
+        return 1
     return 0
 
 

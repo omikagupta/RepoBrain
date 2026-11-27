@@ -281,6 +281,9 @@ class Analyzer:
 
     def resolve(self, name: str) -> tuple[Node | None, str]:
         parts = name.split(".")
+        # These core modules are already loaded before ordinary code runs.
+        if parts[0] in {"sys", "builtins"}:
+            return None, "unresolved_import"
         for end in range(1, len(parts) + 1):
             matches = self.modules.get(".".join(parts[:end]), [])
             if len(matches) > 1:

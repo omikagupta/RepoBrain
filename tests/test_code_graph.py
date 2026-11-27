@@ -50,6 +50,24 @@ FIXTURE = {
 }
 
 
+def test_preloaded_core_module_is_not_resolved_to_local_file() -> None:
+    graph = Analyzer(
+        uuid4(),
+        [
+            InputFile(
+                id=uuid4(), path="sys.py", content="def getdefaultencoding(): pass"
+            ),
+            InputFile(
+                id=uuid4(),
+                path="consumer.py",
+                content="from sys import getdefaultencoding\n",
+            ),
+        ],
+    ).build()
+    assert [edge.relationship for edge in graph.edges] == ["CONTAINS"]
+    assert [item.code for item in graph.diagnostics] == ["unresolved_import"]
+
+
 def test_ast_graph_resolves_only_supported_relationships() -> None:
     files = [
         InputFile(id=uuid4(), path=path, content=code) for path, code in FIXTURE.items()

@@ -1,4 +1,5 @@
 import asyncio
+import os
 import sys
 from uuid import UUID
 
@@ -82,33 +83,70 @@ async def read_files(session: AsyncSession, snapshot_id: UUID) -> list[InputFile
 
 
 async def parse_files(snapshot_id: UUID, files: list[InputFile]) -> Graph:
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-I",
-        "-m",
-        "repobrain.graph.worker",
-        str(snapshot_id),
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.DEVNULL,
+    payload = files_adapter.dump_json(files)
+    # Windows needs SystemRoot. Database settings stay in the parent.
+    env = {key: os.environ[key] for key in ("SYSTEMROOT",) if key in os.environ}
+    launch = asyncio.create_task(
+        asyncio.create_subprocess_exec(
+            sys.executable,
+            "-I",
+            "-m",
+            "repobrain.graph.worker",
+            str(snapshot_id),
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+        )
     )
+    exchange: asyncio.Task[tuple[bytes, bytes]] | None = None
     try:
-        output, _ = await process.communicate(files_adapter.dump_json(files))
-    finally:
-        if process.returncode is None:
+        process = await asyncio.shield(launch)
+        exchange = asyncio.create_task(process.communicate(payload))
+        output, _ = await asyncio.shield(exchange)
+    except (asyncio.CancelledError, OSError) as exc:
+        cleanup = asyncio.create_task(reap_worker(launch, exchange))
+        cancelled = isinstance(exc, asyncio.CancelledError)
+        while not cleanup.done():
             try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-            await process.communicate()
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                cancelled = True
+        cleanup.result()
+        if cancelled:
+            raise asyncio.CancelledError from None
+        raise GraphError("Python parser process failed") from None
     if process.returncode == 2:
-        raise GraphError(output.decode("ascii"))
+        raise GraphError("Python parser exceeded an analysis limit")
     if process.returncode:
         raise GraphError("Python parser process failed")
     try:
         return Graph.model_validate_json(output)
     except ValidationError:
         raise GraphError("Python parser produced an invalid graph") from None
+
+
+async def reap_worker(
+    launch: asyncio.Task[asyncio.subprocess.Process],
+    exchange: asyncio.Task[tuple[bytes, bytes]] | None,
+) -> None:
+    try:
+        process = await launch
+    except OSError:
+        return
+    if process.returncode is None:
+        try:
+            process.kill()
+        except ProcessLookupError:
+            pass
+    try:
+        if exchange is None:
+            await process.communicate()
+        else:
+            await exchange
+    except OSError:
+        # A failed pipe exchange still requires waiting for the child.
+        await process.wait()
 
 
 async def analyze_snapshot(
