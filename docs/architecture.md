@@ -265,14 +265,69 @@ encoding policy, and fusion policy. The deterministic fake-provider fixture in
 `tests/test_hybrid_search.py` checks exact scores derived from both baseline
 ranks, result order, and evidence identity. It does not measure retrieval quality.
 
+## Milestone 5A
+
+Graph-enhanced retrieval requires the completed analysis marker from the
+snapshot-scoped Python graph schema as well as both compatible search indexes.
+The existing graph schema has no separate analyzer version. The PostgreSQL row
+revision of the atomic completion marker detects marker updates or replacement
+during inference. The service validates all prerequisites before embedding,
+releases the read transaction, then revalidates in one fresh read-only
+repeatable-read transaction. Hybrid ranking, traversal and evidence reads use
+that same transaction. No migrations or additional indexing are required.
+
+`graph-outgoing-v1` takes the first five hybrid candidates as seeds. For each
+seed, it searches only the same snapshot and source file, preferring a symbol
+with inclusive span overlap over the module. It chooses the largest overlap,
+then the shortest symbol span, then the smallest stable node key. A module is
+the fallback for uncovered source or syntax-error files. Seeds without a
+matching node remain in the hybrid ranking. If multiple seeds map to the same
+node, traversal starts there once using the highest-ranked seed.
+
+Traversal is breadth-first along outgoing `CONTAINS`, `IMPORTS` and
+`IMPORTS_SYMBOL` edges, with one bounded edge query per level ordered by stable
+edge key. The first shortest path owns each visited node. The budgets are
+two hops, 50 nodes including seeds, 100 examined edges including cycle edges,
+and 30 distinct discovered chunks. One lookahead checks for omitted depth.
+A discovered symbol maps to the chunk with the largest inclusive overlap,
+then the earliest start line and stable chunk key. A module maps to its
+earliest chunk. A node with no chunk contributes no evidence. Each cited
+chunk comes from the existing lexical index. A cap that omits expansion sets
+the corresponding flag, and the response contains the bounded partial result.
+A path back to the identical seed chunk earns no contribution.
+
+`rrf-plus-best-hop-v1` ranks the union of the full bounded hybrid candidate
+list and discovered chunks. For chunk `c`, the score is
+`RRF(c) + max(0, 0.75 × RRF(seed) / hops)`, with the max taken over retained
+paths to its chunk and absent `RRF(c)` treated as zero. Equal contributions
+prefer the better seed rank and then the edge UUID sequence. Exact fractions
+determine order before conversion to JSON numbers. Final ties use bytewise
+UTF-8 path, start line and chunk UUID. The endpoint returns at most 30 hits.
+Multiple paths, cycles, and node degree cannot accumulate score.
+
+This policy is reproducible for the same snapshot, graph, indexes, model and
+query. Its outgoing-only traversal, shortest-path ownership, single chunk per
+node and fixed budgets can omit evidence. It uses conservative static edges
+only. The response exposes original hybrid rank and score, graph contribution,
+and the selected path so downstream evaluation can compare retrieval modes
+and count evidence without recomputing citations.
+
+For the synthetic PostgreSQL fixture in `tests/test_graph_enhanced_search.py`,
+`read_file` ranks `a.py` first with `2/61`. The import to `x_bridge.py`, the
+import to the `z_dependency.py` module, and the symbol import to
+`z_dependency.helper` rank second through fourth, each with `3/122`. The
+hybrid candidate pool contains neither `z_dependency.py` chunk. The path
+`a → x_bridge → tail` follows two `IMPORTS` edges and earns `3/244`. The
+back edge from `x_bridge` to `a` does not revisit the seed. This fixture uses
+fake embeddings and demonstrates functionality only.
+
 ## Planned architecture
 
-1. Expand the hybrid candidate set through bounded graph traversal.
-2. Generate evidence-backed answers with citations that link to the pinned
+1. Generate evidence-backed answers with citations that link to the pinned
    commit, file, and lines. Expose dependency relationships through a React
    explorer.
-3. Evaluate hybrid retrieval with and without graph expansion on the same
+2. Evaluate hybrid retrieval with and without graph expansion on the same
    pinned repositories and questions.
 
-Graph expansion, answer generation, and the explorer are planned capabilities.
+Answer generation and the explorer are planned capabilities.
 The backend has no external AI dependency.

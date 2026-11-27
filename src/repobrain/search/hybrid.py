@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from fractions import Fraction
@@ -50,13 +50,27 @@ class HybridMatch(Match):
     channels: list[Literal["lexical", "vector"]]
 
 
-class HybridResponse(Identity):
+class RetrievalIdentity(Identity):
     query: str
     chunking_version: str
     vector_version: str
     model: EmbeddingModel
     fusion: FusionPolicy
+
+
+class HybridResponse(RetrievalIdentity):
     results: list[HybridMatch]
+
+
+def rrf_score(lexical_rank: int | None, vector_rank: int | None) -> Fraction:
+    return sum(
+        (
+            Fraction(1, RRF_K + rank)
+            for rank in (lexical_rank, vector_rank)
+            if rank is not None
+        ),
+        Fraction(),
+    )
 
 
 def fuse(
@@ -74,20 +88,20 @@ def fuse(
     for chunk_id, hit in (vector_by_id | lexical_by_id).items():
         lex = lexical_by_id.get(chunk_id)
         vec = vector_by_id.get(chunk_id)
-        score = Fraction()
+        lexical_rank = lex.match.rank if lex else None
+        vector_rank = vec.match.rank if vec else None
+        score = rrf_score(lexical_rank, vector_rank)
         channels: list[Literal["lexical", "vector"]] = []
         if lex is not None:
-            score += Fraction(1, RRF_K + lex.match.rank)
             channels.append("lexical")
         if vec is not None:
-            score += Fraction(1, RRF_K + vec.match.rank)
             channels.append("vector")
         match = HybridMatch(
             **hit.match.model_dump(exclude={"score"}),
             score=float(score),
-            lexical_rank=lex.match.rank if lex else None,
+            lexical_rank=lexical_rank,
             lexical_score=lex.match.score if lex else None,
-            vector_rank=vec.match.rank if vec else None,
+            vector_rank=vector_rank,
             vector_score=vec.match.score if vec else None,
             channels=channels,
         )
@@ -141,6 +155,8 @@ async def hybrid_search(
     query: str,
     limit: int,
     provider: EmbeddingProvider,
+    *,
+    prerequisite: Callable[[], Awaitable[str]] | None = None,
 ) -> HybridResponse:
     if "\x00" in query:
         raise ExplorationError(
@@ -149,6 +165,7 @@ async def hybrid_search(
     terms = query_terms(query)
     model = provider.model
     indexes = await read_indexes(session, snapshot_id, model)
+    prerequisite_stamp = await prerequisite() if prerequisite is not None else None
     lexical: list[Candidate] = []
     vector: list[Candidate] = []
     if indexes.chunk_count:
@@ -162,6 +179,10 @@ async def hybrid_search(
         if current != indexes:
             raise ExplorationError(
                 409, "hybrid_indexes_changed", "Search indexes changed during inference"
+            )
+        if prerequisite is not None and await prerequisite() != prerequisite_stamp:
+            raise ExplorationError(
+                409, "graph_analysis_changed", "Graph analysis changed during inference"
             )
         lexical = await lexical_candidates(session, current.identity, terms, POOL_SIZE)
         vector = await vector_candidates(
