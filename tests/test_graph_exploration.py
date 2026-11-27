@@ -426,3 +426,20 @@ async def test_neighborhood_honors_caps(graph_api: Fixture, cap: str) -> None:
         {item["source_id"], item["target_id"]} <= included for item in body["edges"]
     )
     assert (await f.api.get(f.url("neighborhood"), params=params)).json() == body
+    if cap == "nodes":
+        # The center and its first 99 neighbors fill the first-hop node budget.
+        # The existing edge from the first neighbor to f.nodes[2] stays out.
+        assert body["depth"] == 2
+        expected_targets = [f.nodes[1], *targets[:98]]
+        assert [node["id"] for node in body["nodes"]] == [
+            str(id_) for id_ in [f.nodes[0], *expected_targets]
+        ]
+        assert [item["target_id"] for item in body["edges"]] == [
+            str(id_) for id_ in expected_targets
+        ]
+        assert all(item["source_id"] == str(f.nodes[0]) for item in body["edges"])
+        depth_one = await f.api.get(
+            f.url("neighborhood"), params={**params, "depth": 1}
+        )
+        assert depth_one.status_code == 200, depth_one.text
+        assert depth_one.json() == {**body, "depth": 1}

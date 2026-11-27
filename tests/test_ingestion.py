@@ -17,6 +17,8 @@ from repobrain.database.models import (
     RepositorySnapshot,
     SourceFile,
 )
+from repobrain.graph.analyzer import source_lines
+from repobrain.graph.exploration import ExplorationError, slice_source
 from repobrain.ingestion.github import GitHub, IngestionError, PythonFile
 from repobrain.ingestion.service import IngestionService, SnapshotStatus
 from repobrain.main import create_app
@@ -119,6 +121,61 @@ async def test_pinned_resolution_and_filtering(ref: str | None) -> None:
     assert files[0].line_count == 2
     assert files[0].content == SOURCE.decode()
     assert files[0].content_sha256 == sha256(SOURCE).hexdigest()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("", []),
+        ("\n", [""]),
+        ("\r\n", [""]),
+        ("\r", [""]),
+        ("\n\n", ["", ""]),
+        ("\r\n\r\n", ["", ""]),
+        ("\r\r", ["", ""]),
+        ("one\n", ["one"]),
+        ("one\r\n", ["one"]),
+        ("one\r", ["one"]),
+        ("one\r\n\r\nlast", ["one", "", "last"]),
+        ("one\r\n\r\nlast\r", ["one", "", "last"]),
+    ],
+)
+async def test_source_windows_agree_with_ingestion_and_ast_at_eof(
+    source: str, expected: list[str]
+) -> None:
+    data = source.encode()
+    blob = sha1(
+        f"blob {len(data)}\0".encode() + data, usedforsecurity=False
+    ).hexdigest()
+    github = FixtureGitHub()
+    github.entries = [entry(size=len(data), sha=blob)]
+    github.contents = {blob: data}
+    async with httpx.AsyncClient(transport=github.transport()) as http:
+        client = GitHub(http, Settings())
+        files = await client.collect(await client.resolve(github.repository, None))
+
+    assert len(files) == 1
+    file = files[0]
+    assert file.content == source
+    assert file.line_count == len(expected)
+    assert source_lines(file.content) == expected
+    count = file.line_count
+    window = slice_source(file.content, 1, count + 1)
+    assert [(line.line_number, line.text) for line in window] == list(
+        enumerate(expected, 1)
+    )
+    if count:
+        for end in (count, count + 1):
+            tail = slice_source(file.content, count, end)
+            assert [(line.line_number, line.text) for line in tail] == [
+                (count, expected[-1])
+            ]
+        with pytest.raises(ExplorationError, match="past end of file") as error:
+            slice_source(file.content, count + 1, count + 1)
+        assert error.value.status == 422
+    else:
+        assert slice_source(file.content, 2, 2) == []
 
 
 @pytest.mark.asyncio
