@@ -61,7 +61,7 @@ async def test_migration_upgrade(sessions: async_sessionmaker[AsyncSession]) -> 
         vector = await session.scalar(
             text("SELECT extversion FROM pg_extension WHERE extname = 'vector'")
         )
-    assert version == "0001_database_foundation"
+    assert version == "0002_python_code_graph"
     assert vector
 
 

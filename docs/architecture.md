@@ -54,17 +54,57 @@ cannot complete a retried job. Interrupted jobs can be retried under the same
 snapshot UUID. The worker runs in the FastAPI lifespan and is intended for
 one backend process.
 
+## Milestone 3A
+
+The graph CLI takes an already completed snapshot UUID. PostgreSQL holds a
+snapshot row lock while the CLI reads its Python files and runs Python 3.12's
+standard-library AST parser in a separate process. The process never imports
+or evaluates the indexed source. A successful transaction writes a
+`graph_analyses` summary with counts and diagnostics, `graph_nodes` with
+symbol metadata, and `graph_edges` with relationship and source provenance.
+The summary also marks empty graphs as complete. Concurrent repeats reuse
+that summary. The CLI leaves existing graphs intact.
+
+Nodes are keyed by a hash of file path, node kind, qualified name, and
+source coordinates. Edges key on both nodes, relationship, and provenance
+coordinates. UUIDs are derived from those keys and the snapshot UUID.
+Composite foreign keys enforce that a node's file and both ends of an edge
+belong to the same snapshot. The snapshot's immutable SHA pins the graph.
+Inclusive line ranges refer to the original stored source. Definition spans
+include decorators, and async definitions carry a flag.
+
+- `CONTAINS` records lexical containment, including nested definitions.
+- `IMPORTS` records unique local module candidates in conventional packages
+  with `__init__.py`. A top-level directory named `src` without its own
+  `__init__.py` is an additional source root. Colliding names or package
+  prefixes are ambiguous. Relative imports require a unique package context.
+- `IMPORTS_SYMBOL` covers direct `from` imports of unique undecorated
+  top-level functions in modules consisting of plain function definitions
+  and an optional docstring. Defaults, annotations, and a competing
+  submodule prevent inference. `from package import name` can still yield
+  an edge to the package when the imported name is unresolved.
+
+Imports describe static candidates. Namespace packages, dynamic imports,
+re-exports, arbitrary calls, and runtime dispatch are outside this analysis.
+Syntax errors retain a module node and a path/line diagnostic, without
+adding definitions for that file. Counts distinguish parsed files from
+module nodes.
+
+The CLI bounds a run to 45 seconds and accepts at most 1,000 files, 256 KiB
+per file, and 4 MiB of source total. Limits also cover 300,000 AST nodes,
+20,000 import statements, 20,000 graph nodes, 40,000 edges, and 4,000
+diagnostics. Symbol names and import labels are limited to 1 KiB.
+Exceeding a limit aborts the transaction.
+
 ## Planned architecture
 
-1. Parse Python source with the standard-library AST to build a dependency
-   graph. Treat repository contents as untrusted input.
-2. Retrieve source passages with lexical and vector search. Optionally expand
+1. Retrieve source passages with lexical and vector search. Optionally expand
    the candidate set through bounded graph traversal.
-3. Generate evidence-backed answers with citations that link to the pinned
+2. Generate evidence-backed answers with citations that link to the pinned
    commit, file, and lines. Expose dependency relationships through a React
    explorer.
-4. Evaluate hybrid retrieval with and without graph expansion on the same
+3. Evaluate hybrid retrieval with and without graph expansion on the same
    pinned repositories and questions.
 
-Graph storage, retrieval, answer generation, and the explorer are
+Retrieval, answer generation, and the explorer are
 planned capabilities. The backend has no external AI dependency.

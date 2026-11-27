@@ -207,3 +207,30 @@ Unsafe or duplicate paths and truncated trees fail the job. Source text is
 decoded as strict UTF-8 with no newline normalization. SHA-256 covers the
 original bytes. Line counts treat LF, CRLF, and bare CR as line breaks and
 include a final unterminated line. All tests use local GitHub fixtures.
+
+## Analyze a completed snapshot
+
+Migrate the database to Alembic head first. Use the snapshot UUID returned
+by ingestion. This explicit command reads stored Python source and prints
+the pinned commit SHA, file and graph counts, and the diagnostic count.
+
+```powershell
+$snapshot = ([guid]$job.snapshot_id).ToString()
+docker compose run --rm --no-deps backend python -m repobrain.graph $snapshot
+docker compose exec -T db psql -U repobrain -d repobrain -c "SELECT kind, qualified_name, start_line, end_line FROM graph_nodes WHERE snapshot_id = '$snapshot' ORDER BY stable_key;"
+docker compose exec -T db psql -U repobrain -d repobrain -c "SELECT relationship, line, provenance FROM graph_edges WHERE snapshot_id = '$snapshot' ORDER BY stable_key;"
+docker compose exec -T db psql -U repobrain -d repobrain -c "SELECT diagnostics FROM graph_analyses WHERE snapshot_id = '$snapshot';"
+```
+
+With an existing external database URL in the environment, you can also
+run `uv run --locked python -m repobrain.graph $snapshot` from PowerShell.
+Each analysis commits its summary, nodes, and edges together. Repeating the
+command reuses the committed graph. Failed runs can be retried.
+
+The analyzer supports lexical containment and conservative local imports in
+regular packages at the repository root and under an unpackaged `src/`.
+Symbol imports require a unique, plain top-level function in a module with no
+other executable top-level statements. Unresolved imports and syntax errors
+are recorded as diagnostics. See the
+[architecture overview](docs/architecture.md#milestone-3a) for resolution
+rules and analysis limits.

@@ -8,11 +8,14 @@ from sqlalchemy import (
     Enum,
     FetchedValue,
     ForeignKey,
+    ForeignKeyConstraint,
+    Index,
     String,
     Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -80,6 +83,7 @@ class RepositorySnapshot(Base):
 class SourceFile(Base):
     __tablename__ = "source_files"
     __table_args__ = (
+        UniqueConstraint("snapshot_id", "id", name="uq_source_files_snapshot_id"),
         UniqueConstraint("snapshot_id", "path", name="uq_source_files_snapshot_path"),
         CheckConstraint(
             "path <> '' AND path !~ '(^/|/$|//|(^|/)[.]{1,2}(/|$)|^[A-Za-z]:)' "
@@ -102,3 +106,77 @@ class SourceFile(Base):
     language: Mapped[str] = mapped_column(Text)
     line_count: Mapped[int]
     content: Mapped[str] = mapped_column(Text)
+
+
+class GraphAnalysis(Base):
+    __tablename__ = "graph_analyses"
+
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), primary_key=True
+    )
+    analyzed_files: Mapped[int]
+    node_count: Mapped[int]
+    edge_count: Mapped[int]
+    diagnostics: Mapped[list[dict[str, str | int | None]]] = mapped_column(JSONB)
+
+
+class GraphNode(Base):
+    __tablename__ = "graph_nodes"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "id", name="uq_graph_nodes_snapshot_id"),
+        UniqueConstraint(
+            "snapshot_id", "stable_key", name="uq_graph_nodes_snapshot_key"
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "source_file_id"],
+            ["source_files.snapshot_id", "source_files.id"],
+            name="fk_graph_nodes_source_file",
+            ondelete="CASCADE",
+        ),
+        Index("ix_graph_nodes_snapshot_file", "snapshot_id", "source_file_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("graph_analyses.snapshot_id", ondelete="CASCADE")
+    )
+    source_file_id: Mapped[UUID]
+    stable_key: Mapped[str] = mapped_column(String(64))
+    kind: Mapped[str] = mapped_column(String(24))
+    qualified_name: Mapped[str] = mapped_column(Text)
+    start_line: Mapped[int | None]
+    end_line: Mapped[int | None]
+    is_async: Mapped[bool]
+
+
+class GraphEdge(Base):
+    __tablename__ = "graph_edges"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", "stable_key", name="uq_graph_edges_snapshot_key"
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "source_id"],
+            ["graph_nodes.snapshot_id", "graph_nodes.id"],
+            name="fk_graph_edges_source_node",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_id", "target_id"],
+            ["graph_nodes.snapshot_id", "graph_nodes.id"],
+            name="fk_graph_edges_target_node",
+            ondelete="CASCADE",
+        ),
+        Index("ix_graph_edges_snapshot_source", "snapshot_id", "source_id"),
+        Index("ix_graph_edges_snapshot_target", "snapshot_id", "target_id"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    snapshot_id: Mapped[UUID]
+    source_id: Mapped[UUID]
+    target_id: Mapped[UUID]
+    stable_key: Mapped[str] = mapped_column(String(64))
+    relationship: Mapped[str] = mapped_column(String(24))
+    line: Mapped[int | None]
+    column: Mapped[int | None]
+    provenance: Mapped[str] = mapped_column(Text)

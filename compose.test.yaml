@@ -10,6 +10,19 @@ services:
         condition: service_healthy
     environment:
       REPOBRAIN_TEST_DATABASE_URL: postgresql+asyncpg://repobrain_test:repobrain-test-only@test-db:5432/repobrain_test
+  runtime-graph-smoke:
+    profiles: [runtime-smoke]
+    build:
+      context: .
+      target: runtime
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      REPOBRAIN_DATABASE_URL: postgresql+asyncpg://repobrain_test:repobrain-test-only@test-db:5432/repobrain_test
+    volumes:
+      - ./tests/runtime_graph_smoke.py:/app/runtime_graph_smoke.py:ro
+    command: ["python", "/app/runtime_graph_smoke.py"]
   test-db:
     image: pgvector/pgvector:0.8.7-pg17-bookworm
     environment:
