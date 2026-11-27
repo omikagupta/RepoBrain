@@ -412,3 +412,35 @@ independent baselines.
 
 The [hybrid architecture notes](docs/architecture.md#milestone-4c) describe
 the fixed ranking policy and deterministic test fixture.
+
+## Query with graph-enhanced retrieval
+
+Build both search indexes, then run the graph analyzer for the same completed
+snapshot using the commands above. Use the vector-enabled backend.
+
+```powershell
+$query = [uri]::EscapeDataString('read_file')
+$response = Invoke-RestMethod "$base/api/v1/snapshots/$snapshot/search/graph-enhanced?q=$query&limit=10"
+$response.results | Select-Object rank, path, score, hybrid_rank, graph_contribution, permalink
+$response.results | Where-Object provenance | ForEach-Object { $_.provenance }
+$response.traversal
+```
+
+The endpoint uses the same query validation as hybrid search and accepts
+`limit` from 1 to 30. Incomplete ingestion, unavailable or incompatible
+indexes, or missing graph analysis return HTTP 409 before inference begins.
+Changed metadata during inference also returns HTTP 409. An unavailable
+embedding provider returns HTTP 503.
+
+The response records the pinned snapshot, embedding and index metadata,
+fusion and expansion policies, and traversal counts and truncation flags.
+Each hit includes its fused score, original hybrid score and rank when
+present, and at most one graph path with directed edges, node IDs and seed
+identity. Truncation returns the bounded partial expansion with HTTP 200.
+See the [graph retrieval policy](docs/architecture.md#milestone-5a).
+
+In the synthetic `read_file` fixture, `a.py` ranks first. Its persisted import
+edges add `x_bridge.py` and the module and helper chunks in `z_dependency.py`
+at ranks 2–4. Each gets a graph contribution of `3/122`. The fixture uses fake
+embeddings and checks graph paths and exact citations. Retrieval quality
+remains unevaluated.
