@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 from typing import Literal, Self
+from urllib.parse import urlsplit
 
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -31,6 +32,42 @@ class Settings(BaseSettings):
     ingestion_timeout: int = Field(default=60, ge=1, le=300)
     ingestion_concurrency: int = Field(default=1, ge=1, le=4)
     vector_model_dir: Path | None = None
+    generation_endpoint: str | None = Field(default=None, max_length=2048)
+    generation_model: str | None = Field(default=None, min_length=1, max_length=128)
+    generation_api_key: SecretStr | None = Field(default=None, min_length=1)
+    generation_timeout: int = Field(default=30, ge=1, le=120)
+    generation_concurrency: int = Field(default=2, ge=1, le=8)
+
+    @model_validator(mode="after")
+    def validate_generation_configuration(self) -> Self:
+        if self.generation_endpoint is None and self.generation_model is None:
+            if self.generation_api_key is not None:
+                raise ValueError("configure a generation endpoint and model")
+            return self
+        if self.generation_endpoint is None or self.generation_model is None:
+            raise ValueError("configure both the generation endpoint and model")
+        try:
+            url = urlsplit(self.generation_endpoint)
+            port = url.port
+            safe_scheme = url.scheme == "https" or (
+                url.scheme == "http" and url.hostname in {"127.0.0.1", "::1"}
+            )
+            if (
+                safe_scheme
+                and url.hostname
+                and url.username is None
+                and url.password is None
+                and not url.query
+                and not url.fragment
+                and not any(char.isspace() for char in self.generation_endpoint)
+                and "\\" not in self.generation_endpoint
+                and port != 0
+                and self.generation_model.strip()
+            ):
+                return self
+        except ValueError:
+            pass
+        raise ValueError("invalid generation endpoint or model configuration")
 
     @field_validator("database_url")
     @classmethod
