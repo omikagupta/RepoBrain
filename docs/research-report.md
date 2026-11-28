@@ -12,6 +12,11 @@ measured ranking for quality metrics. All 600 measured requests succeeded.
 
 ## Cross-file results
 
+![Preliminary recall, essential evidence coverage, latency, repository breakdowns and paired interval](../evaluation/results/run-01-plots.svg)
+
+Regenerate the plots from the saved summary with
+`python evaluation/plot_run.py`.
+
 | Method | Evidence Recall@10 | Essential file coverage@10 | Median ms | P95 ms |
 | --- | ---: | ---: | ---: | ---: |
 | Lexical | 0.00% | 0.00% | 11.28 | 14.73 |
