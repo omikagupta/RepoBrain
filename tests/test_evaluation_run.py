@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from repobrain.evaluation.dataset import Question
+from repobrain.evaluation.report import summarize
 from repobrain.evaluation.run import Mode, Retrieval, run_retrieval
 from repobrain.graph.exploration import ExplorationError
 
@@ -41,6 +42,12 @@ async def test_failures_are_retained_and_resume_is_idempotent(tmp_path: Path) ->
     assert calls == len(rows) == 16
     assert sum(row["error"] == "timeout" for row in rows) == 4
     assert all("sensitive" not in str(row) for row in rows)
+    report = summarize([question], {}, directory, seed=1)
+    assert report["measured_executions"] == 12
+    failures = report["failures"]
+    assert isinstance(failures, list)
+    assert len(failures) == 12
+    assert report["observations"] == []
     await run_retrieval(directory, [question], "fixture", fail, seed=1, timeout=1)
     assert calls == 16
     with pytest.raises(ValueError, match="configuration changed"):
