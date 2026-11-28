@@ -24,6 +24,7 @@ from repobrain.ingestion.routes import router as ingestion_router
 from repobrain.ingestion.service import IngestionService
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
 from repobrain.search.embedding import EmbeddingProvider, LocalOnnxProvider
+from repobrain.search.readiness import router as readiness_router
 from repobrain.search.routes import router as search_router
 from repobrain.settings import Settings
 
@@ -87,6 +88,7 @@ def create_app(
     app.include_router(ingestion_router)
     app.include_router(graph_router)
     app.include_router(search_router)
+    app.include_router(readiness_router)
     app.include_router(answers_router)
 
     @app.exception_handler(ExplorationError)

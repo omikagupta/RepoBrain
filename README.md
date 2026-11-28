@@ -513,3 +513,70 @@ prompt and response boundaries as a secondary safeguard. String matching
 cannot reliably detect a model paraphrasing, encoding, or otherwise
 transforming a secret. Use a trusted provider and configure credentials
 only through the API key environment variable.
+
+## Run the RepoBrain workspace
+
+Start the backend and apply migrations from the repository root.
+
+```powershell
+docker compose up --build -d --wait db
+docker compose run --rm --no-deps backend alembic upgrade head
+docker compose -f compose.yaml -f compose.frontend.yaml up --build -d --wait
+```
+
+Open [the workspace](http://127.0.0.1:8080). Override its loopback port with
+`REPOBRAIN_FRONTEND_PORT`. To enable vector modes, provision the pinned
+embedding files as described above and add `-f compose.vector.yaml` to the
+startup command. Set generation configuration on the backend only.
+
+Import a public `owner/name` with an optional branch, tag, or SHA. Reopen a
+snapshot by UUID or from this browser's recent snapshots. The repository page
+shows the exact CLI commands for graph and index preparation after ingestion.
+Overview reports the persisted graph and index markers. Refresh after
+preparing a snapshot. Index markers do not probe model availability.
+
+For Vite development, leave the backend running on port 8000.
+
+```powershell
+Set-Location frontend
+npm ci
+npm run dev
+```
+
+Vite proxies `/api` to `BACKEND_PROXY_TARGET` (default
+`http://127.0.0.1:8000`). `VITE_API_BASE_URL` optionally sets a public API base
+prefix at build time. Keep the deployment same-origin and never put
+credentials in Vite variables.
+
+```powershell
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npx playwright install chromium
+npm run test:e2e
+```
+
+The default browser tests mock API responses. To exercise the shipped
+frontend image with real FastAPI, ephemeral PostgreSQL and test-only
+deterministic providers, run from the repository root.
+
+```powershell
+docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml up --build -d --wait frontend
+Push-Location frontend
+try {
+    $env:REPOBRAIN_E2E_BASE = 'http://127.0.0.1:4180'
+    $env:REPOBRAIN_SCREENSHOTS = 'test-results/screenshots'
+    npm run test:e2e
+} finally {
+    Remove-Item Env:REPOBRAIN_E2E_BASE, Env:REPOBRAIN_SCREENSHOTS
+    Pop-Location
+    docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml down
+}
+```
+
+The screenshots show the seeded repository and a labeled deterministic
+answer demonstration. CI publishes screenshots in its browser results
+artifact. This is a single-developer workspace. Keep it loopback-only.
+Public paid generation requires authentication, isolation and rate limits.
+Cancelling in the browser may leave upstream work and billing running.

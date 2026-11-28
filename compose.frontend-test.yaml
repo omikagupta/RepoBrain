@@ -1,0 +1,29 @@
+services:
+  backend:
+    build:
+      context: .
+      target: test
+    depends_on:
+      test-db:
+        condition: service_healthy
+    environment:
+      REPOBRAIN_DATABASE_URL: postgresql+asyncpg://repobrain_test:repobrain-test-only@test-db:5432/repobrain_test
+      REPOBRAIN_FRONTEND_SMOKE: "1"
+    command: ["python", "tests/frontend_smoke.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+  frontend:
+    build: ./frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${REPOBRAIN_FRONTEND_SMOKE_PORT:-4180}:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
