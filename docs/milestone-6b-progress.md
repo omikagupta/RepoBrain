@@ -140,3 +140,15 @@ The standalone audit passed against the published freeze manifest and all
 results appear in the research report. The production answer service
 completed 36 blinded development cases with a local deterministic HTTP
 fixture. Semantic quality and independent review remain pending.
+
+## Release verification
+
+The chart commit `3ea6b7a1ea7538f1af365258b0fd4798f7cc02de` passed both
+CI jobs. A fresh audit verified the frozen inputs and 800 raw retrieval
+attempts, including 600 measured attempts with zero failures. The portfolio
+README links to screenshots captured by the real-backend browser smoke test.
+
+The earlier private Compose attempt was declined because the automated
+review budget was exhausted. An approved retry migrated a separate local
+database, started the private stack, and verified the SPA and same-origin
+API. Authenticated HTTPS remains unverified without a suitable local gateway.

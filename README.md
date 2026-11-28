@@ -17,6 +17,16 @@ Start with the [local workspace setup](#run-the-repobrain-workspace), follow
 the [demo script](docs/demo-script.md), or read the
 [preliminary research report](docs/research-report.md).
 
+![RepoBrain snapshot overview with graph and index readiness](docs/screenshots/overview.png)
+
+[Code search screenshot](docs/screenshots/search.png) ·
+[Mobile search screenshot](docs/screenshots/mobile-search.png) ·
+[Dependency explorer screenshot](docs/screenshots/graph.png) ·
+[Grounded answer screenshot](docs/screenshots/answer.png) (deterministic demo)
+
+These screenshots come from the browser smoke test running the production
+frontend, FastAPI and disposable PostgreSQL with a prepared snapshot.
+
 RepoBrain provides a Python 3.12 FastAPI backend and PostgreSQL persistence
 for repositories, commit snapshots, and source files. The source is under
 `src/repobrain`.

@@ -208,7 +208,10 @@ async def execute(args: argparse.Namespace) -> None:
                     )
 
             await export_answer_review(
-                args.output, benchmark, answer, seed=configuration.seed
+                args.output,
+                development if args.development else benchmark,
+                answer,
+                seed=configuration.seed,
             )
         elif args.action == "score":
             run_directory: Path = args.run
@@ -306,7 +309,9 @@ def main() -> None:
     commands.add_parser("review-development").add_argument(
         "--output", type=Path, required=True
     )
-    commands.add_parser("answers").add_argument("--output", type=Path, required=True)
+    answers = commands.add_parser("answers")
+    answers.add_argument("--output", type=Path, required=True)
+    answers.add_argument("--development", action="store_true")
     scoring = commands.add_parser("score")
     scoring.add_argument("--run", type=Path, required=True)
     scoring.add_argument("--output", type=Path, required=True)

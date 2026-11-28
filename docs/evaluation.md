@@ -43,6 +43,8 @@ answer evaluation has been run.
 
 After freezing, use `python -m repobrain.evaluation answers --output PATH`
 with a keyless loopback generation provider. This command uses the production
-answer service and refuses remote providers and API keys. Share only
+answer service and refuses remote providers and API keys. Add `--development`
+to run the nine frozen development questions across all four retrieval modes
+before using a model on benchmark questions. Share only
 `review.jsonl` with reviewers. Keep the method key separate until judgments
 are finalized.
