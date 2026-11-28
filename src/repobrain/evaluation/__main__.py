@@ -4,19 +4,26 @@ import json
 from hashlib import sha256
 from pathlib import Path
 from time import perf_counter
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
 from sqlalchemy import select
 
+from repobrain.answers.models import AnswerRequest, AnswerResponse
+from repobrain.answers.provider import Generation, OpenAICompatibleProvider
+from repobrain.answers.routes import answer_question
 from repobrain.database.connection import create_database_engine, create_session_factory
 from repobrain.database.models import (
+    GraphAnalysis,
     IngestionState,
     Repository,
     RepositorySnapshot,
     SourceChunk,
     SourceFile,
+    VectorIndex,
 )
+from repobrain.evaluation.answers import export_answer_review
 from repobrain.evaluation.config import Protocol
 from repobrain.evaluation.dataset import (
     Question,
@@ -33,11 +40,11 @@ from repobrain.graph.service import analyze_snapshot
 from repobrain.ingestion.service import IngestionService
 from repobrain.observability import configure_logging
 from repobrain.search.chunking import VERSION
-from repobrain.search.embedding import LocalOnnxProvider
+from repobrain.search.embedding import MODEL, LocalOnnxProvider
 from repobrain.search.graph_enhanced import graph_search
 from repobrain.search.hybrid import hybrid_search
 from repobrain.search.service import build_index, lexical_search
-from repobrain.search.vector import build_vector_index, vector_search
+from repobrain.search.vector import build_vector_index, compatible, vector_search
 from repobrain.settings import Settings
 
 
@@ -53,7 +60,7 @@ async def execute(args: argparse.Namespace) -> None:
         "configuration": root / "configs" / f"{version}.json",
     }
     freeze = root / "datasets" / f"{version}-freeze.json"
-    if args.action in {"retrieve", "score"}:
+    if args.action in {"retrieve", "score", "answers"}:
         verify_freeze(freeze, version, files)
     repository_rows = json.loads(files["repositories"].read_text(encoding="utf-8"))
     repositories = {
@@ -131,7 +138,8 @@ async def execute(args: argparse.Namespace) -> None:
                 )
                 .join(SourceFile, SourceFile.snapshot_id == RepositorySnapshot.id)
                 .where(
-                    Repository.owner.in_({name.split("/")[0] for name in repositories})
+                    Repository.owner.in_({name.split("/")[0] for name in repositories}),
+                    RepositorySnapshot.ingestion_state == IngestionState.COMPLETED,
                 )
             )
             sources = {}
@@ -141,10 +149,49 @@ async def execute(args: argparse.Namespace) -> None:
                     snapshots[(repo, sha)] = snapshot
                     sources[(repo, sha, path)] = lines
         validate(development, benchmark, repositories, sources)
+        if args.action in {"freeze", "retrieve", "score", "answers"}:
+            async with sessions() as session:
+                for (repo, _), snapshot in snapshots.items():
+                    analysis = await session.get(GraphAnalysis, snapshot)
+                    vector_index = await session.get(VectorIndex, snapshot)
+                    if analysis is None or vector_index is None:
+                        raise ValueError(
+                            f"{repo} lacks a completed graph or vector index"
+                        )
+                    compatible(vector_index, MODEL)
         if args.action == "freeze":
             write_freeze(freeze, version, args.implementation, files)
         elif args.action == "review":
             write_review(args.output, [*development, *benchmark])
+        elif args.action == "answers":
+            # The experiment command deliberately rejects remote endpoints.
+            if (
+                settings.generation_endpoint is None
+                or urlsplit(settings.generation_endpoint).hostname
+                not in {"127.0.0.1", "::1"}
+                or settings.generation_api_key is not None
+            ):
+                raise ValueError(
+                    "Answer evaluation requires a keyless loopback provider"
+                )
+            embedding = LocalOnnxProvider(settings.vector_model_dir)
+            generation = Generation(
+                OpenAICompatibleProvider(settings), settings.generation_timeout, 1
+            )
+
+            async def answer(question: Question, mode: Mode) -> AnswerResponse:
+                async with sessions() as session:
+                    return await answer_question(
+                        session,
+                        snapshots[question.repository, question.commit_sha],
+                        AnswerRequest(question=question.question, retrieval_mode=mode),
+                        embedding,
+                        generation,
+                    )
+
+            await export_answer_review(
+                args.output, benchmark, answer, seed=configuration.seed
+            )
         elif args.action == "score":
             run_directory: Path = args.run
             metadata = json.loads(
@@ -238,6 +285,7 @@ def main() -> None:
     commands.add_parser("freeze").add_argument("--implementation", required=True)
     commands.add_parser("retrieve").add_argument("--output", type=Path, required=True)
     commands.add_parser("review").add_argument("--output", type=Path, required=True)
+    commands.add_parser("answers").add_argument("--output", type=Path, required=True)
     scoring = commands.add_parser("score")
     scoring.add_argument("--run", type=Path, required=True)
     scoring.add_argument("--output", type=Path, required=True)

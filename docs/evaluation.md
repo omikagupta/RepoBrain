@@ -40,3 +40,9 @@ Wait for candidate screening and source annotation before freezing. Review
 machine-assisted judgments independently before presenting broader
 conclusions. Answer quality requires blinded semantic review. No real-model
 answer evaluation has been run.
+
+After freezing, use `python -m repobrain.evaluation answers --output PATH`
+with a keyless loopback generation provider. This command uses the production
+answer service and refuses remote providers and API keys. Share only
+`review.jsonl` with reviewers. Keep the method key separate until judgments
+are finalized.
