@@ -1,5 +1,8 @@
 # Deploying RepoBrain privately
 
+For the authenticated, read-only release option and its executable smoke
+test, see the [private demo release plan](private-demo-release.md).
+
 RepoBrain's current security boundary is a single trusted operator. Start
 with the loopback-only Compose configuration documented in the README.
 Leave generation unset while preparing or demonstrating public snapshots.
