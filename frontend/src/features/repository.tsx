@@ -108,7 +108,7 @@ export function RepositoryPage({ id, snapshot }: { id?: string; snapshot?: Snaps
       {recent.length ? <ul className="list">{recent.map((item) => <li key={item.snapshot_id}><Link to={'/snapshots/' + item.snapshot_id + '/overview'}><strong>{item.repository}</strong><code>{item.commit_sha.slice(0, 12)}</code><ArrowRight size={16} /></Link></li>)}</ul>
         : <Empty>Snapshots opened on this browser appear here.</Empty>}
     </section>
-    {id && snapshot?.state === 'completed' && <Prepare id={id} />}
+    {!hosted && id && snapshot?.state === 'completed' && <Prepare id={id} />}
   </div>
 }
 
@@ -129,7 +129,7 @@ export function Overview({ snapshot }: { snapshot: Snapshot }) {
         <dl className="readiness"><div><dt>Ingestion</dt><dd className={'badge ' + snapshot.state}>{snapshot.state}</dd></div>
           <div><dt>Graph analysis</dt><dd>{ready.data ? (ready.data.graph_analyzed ? 'Ready' : 'Required') : '—'}</dd></div>
           <div><dt>Lexical index</dt><dd>{ready.data ? (ready.data.lexical_version ?? 'Required') : '—'}</dd></div>
-          <div><dt>Vector index</dt><dd>{ready.data ? (ready.data.vector_version ?? 'Required') : '—'}</dd></div>
+          <div><dt>Vector index</dt><dd>{hosted ? 'Unavailable' : ready.data ? (ready.data.vector_version ?? 'Required') : '—'}</dd></div>
         </dl>
         {ready.isFetching && <Busy>Checking snapshot readiness</Busy>}
         {ready.isError && <ErrorNotice error={ready.error} />}
@@ -145,7 +145,11 @@ export function Overview({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </section>
     </div>
-    {ready.data && (!ready.data.graph_analyzed || !ready.data.lexical_version || !ready.data.vector_version) && <Prepare id={id} />}
+    {!hosted && ready.data && (!ready.data.graph_analyzed || !ready.data.lexical_version || !ready.data.vector_version) && <Prepare id={id} />}
+    {hosted && ready.data && (!ready.data.graph_analyzed || !ready.data.lexical_version) &&
+      <p className="notice">{ready.data.managed_preparation
+        ? 'Graph and lexical preparation may still be running. Refresh readiness to check.'
+        : 'Automatic index preparation is disabled. Contact the operator about snapshot readiness.'}</p>}
   </div>
 }
 const CodeFile = FileCode2

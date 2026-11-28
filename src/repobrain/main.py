@@ -7,6 +7,7 @@ import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
+from sqlalchemy.exc import TimeoutError as PoolTimeout
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
@@ -19,10 +20,12 @@ from repobrain.answers.routes import router as answers_router
 from repobrain.database.connection import create_database_engine, create_session_factory
 from repobrain.graph.exploration import ExplorationError
 from repobrain.graph.routes import router as graph_router
+from repobrain.hosted_bounds import HostedBounds
 from repobrain.ingestion.github import IngestionError
 from repobrain.ingestion.routes import router as ingestion_router
 from repobrain.ingestion.service import IngestionService
 from repobrain.observability import RequestMiddleware, configure_logging, error_response
+from repobrain.quotas import QuotaExceeded
 from repobrain.search.embedding import EmbeddingProvider, LocalOnnxProvider
 from repobrain.search.readiness import router as readiness_router
 from repobrain.search.routes import router as search_router
@@ -76,6 +79,7 @@ def create_app(
 
     hosted = settings.deployment_mode == "hosted"
     app = FastAPI(title="RepoBrain", lifespan=lifespan)
+    app.state.settings = settings
     app.state.tokens = (
         Tokens(settings.auth_issuer, settings.auth_audience, auth_transport)
         if hosted and settings.auth_issuer is not None
@@ -93,6 +97,8 @@ def create_app(
         if hosted
         else embedding_provider or LocalOnnxProvider(settings.vector_model_dir)
     )
+    if hosted:
+        app.add_middleware(HostedBounds, settings=settings)
     app.add_middleware(RequestMiddleware)
     for router in (
         ingestion_router,
@@ -109,13 +115,36 @@ def create_app(
     async def handle_exploration_error(
         request: Request, exc: ExplorationError
     ) -> JSONResponse:
-        return error_response(request, exc.status, exc.code, exc.message)
+        headers = (
+            {"Retry-After": str(exc.retry_after)}
+            if isinstance(exc, QuotaExceeded)
+            else None
+        )
+        return error_response(request, exc.status, exc.code, exc.message, headers)
 
     @app.exception_handler(IngestionError)
     async def handle_ingestion_error(
         request: Request, exc: IngestionError
     ) -> JSONResponse:
-        return error_response(request, exc.status, exc.code, exc.message)
+        retry = getattr(exc, "retry_after", None)
+        headers = (
+            {"Retry-After": str(retry or 5)} if retry or exc.status == 429 else None
+        )
+        return error_response(request, exc.status, exc.code, exc.message, headers)
+
+    if hosted:
+
+        @app.exception_handler(PoolTimeout)
+        async def handle_pool_timeout(
+            request: Request, _exc: PoolTimeout
+        ) -> JSONResponse:
+            return error_response(
+                request,
+                429,
+                "database_busy",
+                "Service busy. Try again shortly.",
+                {"Retry-After": "5"},
+            )
 
     @app.exception_handler(HTTPException)
     async def handle_http_error(request: Request, exc: HTTPException) -> JSONResponse:

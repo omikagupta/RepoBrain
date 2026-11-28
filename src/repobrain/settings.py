@@ -21,6 +21,16 @@ class Settings(BaseSettings):
     deployment_mode: Literal["local", "hosted"] = "local"
     auth_issuer: str | None = Field(default=None, max_length=512)
     auth_audience: str = Field(default="authenticated", min_length=1, max_length=128)
+    hosted_repository_limit: int = Field(default=3, ge=1, le=10)
+    hosted_file_limit: int = Field(default=100, ge=1, le=100)
+    hosted_global_ingestions: int = Field(default=1, ge=1, le=2)
+    hosted_daily_ingestions: int = Field(default=5, ge=1, le=30)
+    hosted_hourly_searches: int = Field(default=30, ge=1, le=120)
+    hosted_hourly_graph_reads: int = Field(default=120, ge=1, le=600)
+    hosted_requests_per_minute: int = Field(default=60, ge=1, le=300)
+    hosted_public_per_minute: int = Field(default=180, ge=1, le=1000)
+    hosted_inflight_requests: int = Field(default=8, ge=2, le=16)
+    hosted_prepare_indexes: bool = False
     database_url: SecretStr | None = None
     local_db_password: SecretStr | None = Field(default=None, min_length=1)
     db_pool_size: int = Field(default=5, ge=1)
@@ -114,6 +124,11 @@ class Settings(BaseSettings):
             raise ValueError("hosted mode requires a database and auth issuer")
         if self.vector_model_dir is not None or self.generation_endpoint is not None:
             raise ValueError("hosted mode disables vector inference and generation")
+        self.db_pool_size = min(self.db_pool_size, 2)
+        self.db_max_overflow = 0
+        self.db_pool_timeout = min(self.db_pool_timeout, 2)
+        self.ingestion_max_files = min(self.ingestion_max_files, self.hosted_file_limit)
+        self.ingestion_concurrency = self.hosted_global_ingestions
         url = urlsplit(self.auth_issuer)
         if not (
             url.hostname

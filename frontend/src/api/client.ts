@@ -20,6 +20,9 @@ const messages: Record<number, string> = {
   504: 'The request timed out.',
 }
 const actions: Record<string, string> = {
+  repository_limit: 'You have reached the repository limit. Remove a repository before adding another.',
+  ingestion_busy: 'An ingestion is already running. Wait for it to finish before retrying.',
+  github_rate_limited: 'GitHub has temporarily limited requests. Wait before retrying.',
   generation_unavailable: 'Set the generation endpoint and model in the backend environment. Search and graph exploration are still available.',
   embedding_unavailable: 'Configure the pinned embedding model on the backend before using this retrieval mode.',
   vector_index_unavailable: 'Build the vector index for this snapshot from the repository workspace.',
@@ -27,7 +30,7 @@ const actions: Record<string, string> = {
   graph_analysis_unavailable: 'Analyze this snapshot with the graph CLI from the repository workspace.',
 }
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, public requestId: string | null, message: string) {
+  constructor(public status: number, public code: string, public requestId: string | null, message: string, public retryAfter?: number) {
     super(message)
   }
 }
@@ -68,8 +71,11 @@ async function request<T>(path: string, signal?: AbortSignal, payload?: object, 
   if (!response.ok) {
     if (response.status === 401 && token && accessToken === token) expireSession()
     const { code, message, id } = errorFields(body)
+    const retry = response.headers.get('Retry-After')
+    const seconds = retry && /^\d{1,6}$/.test(retry) ? Number(retry) : undefined
+    const detail = (code && Object.hasOwn(actions, code) ? actions[code] : message) || messages[response.status] || 'The request failed.'
     throw new ApiError(response.status, code ?? 'http_error', id ?? response.headers.get('X-Request-ID'),
-      (code && Object.hasOwn(actions, code) ? actions[code] : message) || messages[response.status] || 'The request failed.')
+      seconds && code !== 'repository_limit' ? detail + ' Retry in about ' + seconds + ' seconds.' : detail, seconds)
   }
   if (!body || typeof body !== 'object') {
     throw new ApiError(502, 'invalid_response', response.headers.get('X-Request-ID'), 'The backend returned an invalid response.')
@@ -112,5 +118,7 @@ export const api = {
 
 export interface Workspace {
   id: string
+  repository_count: number
+  repository_limit: number
   snapshots: { id: string; repository: string; commit_sha: string; snapshot_id: string }[]
 }

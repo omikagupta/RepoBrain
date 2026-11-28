@@ -35,4 +35,15 @@ describe('API boundary', () => {
       expect(pinnedLink(context, 'src/a #.py', 1, 2, unsafe)).toBeNull()
     expect(sourceLines('a\r\nb\rc\n')).toEqual(['a', 'b', 'c'])
   })
+
+  it('shows the retry delay for a throttled lexical search', async () => {
+    const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      error: { code: 'lexical_limit', message: 'Usage limit reached.' },
+    }), { status: 429, headers: { 'Retry-After': '42' } }))
+    try {
+      await expect(api.search('test', 'lexical', 'code', 5)).rejects.toMatchObject({
+        status: 429, retryAfter: 42, message: expect.stringContaining('42 seconds'),
+      })
+    } finally { fetcher.mockRestore() }
+  })
 })

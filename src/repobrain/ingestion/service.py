@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from time import monotonic
 from uuid import UUID
 
 import httpx
@@ -18,6 +19,7 @@ from repobrain.database.models import (
     WorkspaceSnapshot,
 )
 from repobrain.ingestion.github import Commit, GitHub, IngestionError, PythonFile
+from repobrain.quotas import check_repository, release, reserve
 from repobrain.settings import Settings
 
 logger = logging.getLogger("repobrain.ingestion")
@@ -50,6 +52,13 @@ class IngestionService:
         self.settings = settings
         self.active = 0
         self.tasks: set[asyncio.Task[None]] = set()
+        self.github_resume = 0.0
+
+    def note_upstream(self, error: IngestionError) -> None:
+        if error.code == "github_rate_limited" and error.retry_after is not None:
+            self.github_resume = max(
+                self.github_resume, monotonic() + error.retry_after
+            )
 
     async def close(self) -> None:
         tasks = tuple(self.tasks)
@@ -117,6 +126,12 @@ class IngestionService:
                     raise IngestionError(
                         409, "workspace_changed", "Retry from your workspace"
                     )
+                await check_repository(
+                    session,
+                    workspace[0],
+                    commit.repository,
+                    self.settings.hosted_repository_limit,
+                )
             await session.execute(
                 insert(Repository)
                 .values(owner=owner, name=name)
@@ -149,6 +164,17 @@ class IngestionService:
             )
             await self.expire(session, snapshot_id)
             if workspace is not None:
+                count = await session.scalar(
+                    select(func.count())
+                    .select_from(SourceFile)
+                    .where(SourceFile.snapshot_id == snapshot_id)
+                )
+                if count is not None and count > self.settings.ingestion_max_files:
+                    raise IngestionError(
+                        413,
+                        "ingestion_limit",
+                        "Repository exceeds the hosted file limit",
+                    )
                 await session.execute(
                     insert(WorkspaceSnapshot)
                     .values(workspace_id=workspace[0], snapshot_id=snapshot_id)
@@ -175,25 +201,45 @@ class IngestionService:
         request_id: str,
         workspace: tuple[UUID, int] | None = None,
     ) -> SnapshotStatus:
+        remaining = self.github_resume - monotonic()
+        if workspace is not None and remaining > 0:
+            raise IngestionError(
+                503,
+                "github_rate_limited",
+                "GitHub rate limit reached",
+                int(remaining) + 1,
+            )
         if self.active >= self.settings.ingestion_concurrency:
             raise IngestionError(
                 429, "ingestion_busy", "Ingestion capacity is full; retry later"
             )
         self.active += 1
         scheduled = False
+        lease = None
         try:
+            if workspace is not None and self.settings.deployment_mode == "hosted":
+                lease = await reserve(
+                    self.sessions, self.settings, workspace, repository
+                )
             github = GitHub(self.client, self.settings)
             async with asyncio.timeout(self.settings.ingestion_timeout):
                 commit = await github.resolve(repository, ref)
                 snapshot_id, pending = await self.prepare(commit, workspace)
-                if pending is not None:
+                if pending is not None or (
+                    lease is not None and self.settings.hosted_prepare_indexes
+                ):
                     task = asyncio.create_task(
-                        self.run(github, commit, snapshot_id, pending, request_id)
+                        self.run_submission(
+                            github, commit, snapshot_id, pending, request_id, lease
+                        )
                     )
                     self.tasks.add(task)
                     task.add_done_callback(self.release_task)
                     scheduled = True
                 return await self.status(snapshot_id)
+        except IngestionError as error:
+            self.note_upstream(error)
+            raise
         except TimeoutError:
             raise IngestionError(
                 504, "ingestion_timeout", "Ingestion request timed out"
@@ -201,6 +247,43 @@ class IngestionService:
         finally:
             if not scheduled:
                 self.active -= 1
+                if lease is not None:
+                    await release(self.sessions, lease)
+
+    async def run_submission(
+        self,
+        github: GitHub,
+        commit: Commit,
+        snapshot_id: UUID,
+        pending: datetime | None,
+        request_id: str,
+        lease: tuple[UUID, UUID] | None,
+    ) -> None:
+        try:
+            if pending is not None:
+                await self.run(github, commit, snapshot_id, pending, request_id)
+            if lease is not None and self.settings.hosted_prepare_indexes:
+                status = await self.status(snapshot_id)
+                if status.state == IngestionState.COMPLETED:
+                    from repobrain.graph.service import analyze_snapshot
+                    from repobrain.search.service import build_index
+
+                    try:
+                        await analyze_snapshot(self.sessions, snapshot_id)
+                        await build_index(self.sessions, snapshot_id)
+                    except Exception as exc:
+                        logger.warning(
+                            "hosted_preparation_failed",
+                            extra={
+                                "event_fields": {
+                                    "request_id": request_id,
+                                    "reason": type(exc).__name__,
+                                }
+                            },
+                        )
+        finally:
+            if lease is not None:
+                await release(self.sessions, lease)
 
     def release_task(self, task: asyncio.Task[None]) -> None:
         # A task cancelled before its first step never enters run().
@@ -272,6 +355,8 @@ class IngestionService:
                 files = await github.collect(commit)
                 await self.complete(snapshot_id, token, files)
         except (Exception, asyncio.CancelledError) as exc:
+            if isinstance(exc, IngestionError):
+                self.note_upstream(exc)
             code = exc.code if isinstance(exc, IngestionError) else type(exc).__name__
             logger.warning(
                 "ingestion_failed", extra={"event_fields": {**fields, "reason": code}}

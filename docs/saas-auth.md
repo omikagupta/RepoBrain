@@ -65,8 +65,7 @@ application revision only on a private, isolated system after verifying
 schema compatibility. The previous application does not enforce tenancy.
 Use the migration safety and backup rules before production rollout.
 
-The hosted profile is a security boundary for local validation. Repository
-analysis and lexical index building still use the existing operator CLI.
-Do not expose ingestion publicly before persistent quotas and abuse limits
-are in place. Cloud account eligibility, production SMTP, hosted TLS,
-pooling, backup/restore, and deployment verification are pending.
+The hosted profile is a security boundary for local validation. See
+[hosted quotas and preparation](saas-quotas.md) for Phase 3 controls.
+Cloud account eligibility, production SMTP, hosted TLS, pooling,
+backup/restore, and deployment verification are pending.

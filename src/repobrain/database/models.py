@@ -60,6 +60,23 @@ class WorkspaceSnapshot(Base):
     )
 
 
+class UsageWindow(Base):
+    __tablename__ = "usage_windows"
+
+    owner_id: Mapped[UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    count: Mapped[int]
+
+
+class IngestionLease(Base):
+    __tablename__ = "ingestion_leases"
+
+    owner_id: Mapped[UUID] = mapped_column(primary_key=True)
+    token: Mapped[UUID] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Repository(Base):
     __tablename__ = "repositories"
     __table_args__ = (

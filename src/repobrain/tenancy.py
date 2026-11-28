@@ -22,6 +22,8 @@ from repobrain.database.models import (
     WorkspaceSnapshot,
 )
 from repobrain.graph.exploration import ExplorationError
+from repobrain.quotas import charge, workspace_repositories
+from repobrain.settings import Settings
 
 bearer = HTTPBearer(auto_error=False)
 ALGORITHMS = ("ES256", "RS256")
@@ -146,7 +148,15 @@ async def authenticated(
         raise hidden()
     if credentials is None:
         raise unauthorized()
-    return await tokens.subject(credentials.credentials)
+    subject = await tokens.subject(credentials.credentials)
+    settings: Settings = request.app.state.settings
+    async with sessions_for(request).begin() as session:
+        # Unknown signed identities can only create a counter by provisioning.
+        if await session.get(SaaSUser, subject) is not None:
+            await charge(
+                session, subject, "request", 60, settings.hosted_requests_per_minute
+            )
+    return subject
 
 
 Subject = Annotated[UUID, Depends(authenticated)]
@@ -178,6 +188,18 @@ async def protect(
     if workspace is None:
         raise hidden()
     request.state.workspace = (workspace.id, workspace.revision)
+    settings: Settings = request.app.state.settings
+    path = request.url.path
+    if path.endswith("/search/lexical"):
+        async with sessions_for(request).begin() as session:
+            await charge(
+                session, subject, "lexical", 3600, settings.hosted_hourly_searches
+            )
+    if path.endswith(("/graph", "/nodes", "/edges", "/neighborhood", "/source")):
+        async with sessions_for(request).begin() as session:
+            await charge(
+                session, subject, "graph", 3600, settings.hosted_hourly_graph_reads
+            )
 
 
 router = APIRouter(prefix="/api/v1/workspace", tags=["Workspace"])
@@ -193,6 +215,8 @@ class WorkspaceRepo(BaseModel):
 class WorkspaceView(BaseModel):
     id: UUID
     snapshots: list[WorkspaceRepo]
+    repository_count: int
+    repository_limit: int
 
 
 @router.post("")
@@ -212,7 +236,7 @@ async def provision(request: Request, subject: Subject) -> WorkspaceView:
             session.add(row)
             await session.flush()
             workspace = row.id
-        return WorkspaceView(id=workspace, snapshots=[])
+    return await workspace_status(request, subject)
 
 
 @router.get("")
@@ -236,6 +260,10 @@ async def workspace_status(request: Request, subject: Subject) -> WorkspaceView:
         )
         return WorkspaceView(
             id=workspace,
+            repository_count=len(
+                (await session.execute(workspace_repositories(workspace))).all()
+            ),
+            repository_limit=request.app.state.settings.hosted_repository_limit,
             snapshots=[
                 WorkspaceRepo(
                     id=repo.id,

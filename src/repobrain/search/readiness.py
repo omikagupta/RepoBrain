@@ -13,6 +13,7 @@ class Readiness(Identity):
     graph_analyzed: bool
     lexical_version: str | None
     vector_version: str | None
+    managed_preparation: bool = False
 
 
 @router.get(
@@ -31,4 +32,8 @@ async def readiness(snapshot_id: UUID, session: Db, request: Request) -> Readine
         graph_analyzed=snapshot.counts is not None,
         lexical_version=lexical.chunking_version if lexical else None,
         vector_version=vector.vector_version if vector else None,
+        managed_preparation=(
+            request.app.state.tokens is not None
+            and request.app.state.settings.hosted_prepare_indexes
+        ),
     )

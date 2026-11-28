@@ -28,6 +28,7 @@ export function WorkspacePage() {
     {(change.error || logout.error) && <ErrorNotice error={change.error ?? logout.error} />}
     {missing && <button className="button primary" disabled={change.isPending} onClick={() => change.mutate({ type: 'create' })}>Create workspace</button>}
     {workspace.data && <>
+      <p>{workspace.data.repository_count} of {workspace.data.repository_limit} repositories used</p>
       <Link className="button primary" to="/repositories">Import a repository</Link>
       {workspace.data.snapshots.length === 0 && <p>No snapshots yet.</p>}
       <ul>{workspace.data.snapshots.map((item) => <li key={item.snapshot_id} className="row">
