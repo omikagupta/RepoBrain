@@ -66,7 +66,10 @@ async def submit_ingestion(
 ) -> SnapshotStatus:
     request_id: str = request.state.request_id
     status = await ingestion_service(request).submit(
-        payload.repository, payload.ref, request_id
+        payload.repository,
+        payload.ref,
+        request_id,
+        getattr(request.state, "workspace", None),
     )
     response.headers["Location"] = f"/api/v1/ingestions/{status.snapshot_id}"
     if status.state == IngestionState.COMPLETED:

@@ -32,6 +32,61 @@ class IngestionState(StrEnum):
     FAILED = "failed"
 
 
+class SaaSUser(Base):
+    __tablename__ = "saas_users"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("saas_users.id"), unique=True)
+    revision: Mapped[int] = mapped_column(default=0)
+
+
+class WorkspaceSnapshot(Base):
+    __tablename__ = "workspace_snapshots"
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+
+
+class UsageWindow(Base):
+    __tablename__ = "usage_windows"
+
+    owner_id: Mapped[UUID] = mapped_column(primary_key=True)
+    kind: Mapped[str] = mapped_column(String(24), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    count: Mapped[int]
+
+
+class IngestionLease(Base):
+    __tablename__ = "ingestion_leases"
+
+    owner_id: Mapped[UUID] = mapped_column(primary_key=True)
+    token: Mapped[UUID] = mapped_column(nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class HostedCacheEntry(Base):
+    __tablename__ = "hosted_cache_entries"
+
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"), primary_key=True
+    )
+    reserved_bytes: Mapped[int]
+    touched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+
+
 class Repository(Base):
     __tablename__ = "repositories"
     __table_args__ = (

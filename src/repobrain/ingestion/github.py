@@ -3,6 +3,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from hashlib import sha1, sha256
+from time import time
 from urllib.parse import quote
 
 import httpx
@@ -32,11 +33,24 @@ ENTRY_MODES = {
 
 
 class IngestionError(Exception):
-    def __init__(self, status: int, code: str, message: str) -> None:
+    def __init__(
+        self, status: int, code: str, message: str, retry_after: int | None = None
+    ) -> None:
         super().__init__(message)
         self.status = status
         self.code = code
         self.message = message
+        self.retry_after = retry_after
+
+
+def github_retry_after(headers: httpx.Headers) -> int:
+    seconds = headers.get("retry-after", "")
+    if re.fullmatch(r"[0-9]{1,8}", seconds):
+        return max(1, min(3600, int(seconds)))
+    reset = headers.get("x-ratelimit-reset", "")
+    if re.fullmatch(r"[0-9]{1,12}", reset):
+        return max(1, min(3600, int(reset) - int(time())))
+    return 60
 
 
 def upstream_error() -> IngestionError:
@@ -150,7 +164,10 @@ class GitHub:
                     )
                 ):
                     raise IngestionError(
-                        503, "github_rate_limited", "GitHub rate limit reached"
+                        503,
+                        "github_rate_limited",
+                        "GitHub rate limit reached",
+                        github_retry_after(response.headers),
                     )
                 if response.status_code == 403:
                     raise missing

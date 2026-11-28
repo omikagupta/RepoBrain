@@ -56,6 +56,14 @@ jobs:
           npm run build
           npx playwright install --with-deps chromium
           npm run test:e2e
+      - name: Build hosted static frontend with offline fixture settings
+        working-directory: frontend
+        env:
+          VITE_DEPLOYMENT_MODE: hosted
+          VITE_API_BASE_URL: https://api.example.invalid
+          VITE_SUPABASE_URL: https://auth.example.invalid
+          VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_fixture
+        run: npm run build:hosted
       - name: Start disposable end-to-end stack
         run: docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml up --build -d --wait frontend
       - name: Verify private Compose boundaries

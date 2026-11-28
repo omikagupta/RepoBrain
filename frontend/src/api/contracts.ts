@@ -14,6 +14,7 @@ export interface Snapshot extends Identity {
   error: { code: string; message: string } | null
 }
 export interface Readiness extends Identity {
+  managed_preparation?: boolean
   graph_analyzed: boolean
   lexical_version: string | null
   vector_version: string | null

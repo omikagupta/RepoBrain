@@ -25,7 +25,7 @@ from repobrain.answers.provider import (
     GenerationInput,
     invalid_output,
 )
-from repobrain.graph.exploration import Identity
+from repobrain.graph.exploration import ExplorationError, Identity
 from repobrain.graph.routes import Db
 from repobrain.ingestion.routes import ErrorEnvelope
 from repobrain.search.embedding import EmbeddingProvider
@@ -50,6 +50,10 @@ router = APIRouter(
 async def answer(
     snapshot_id: UUID, payload: AnswerRequest, session: Db, request: Request
 ) -> AnswerResponse:
+    if request.app.state.tokens is not None:
+        raise ExplorationError(
+            503, "generation_unavailable", "AI answers are disabled in hosted mode"
+        )
     mode = payload.retrieval_mode
     embedding = get_provider(request) if mode != "lexical" else None
     return await answer_question(

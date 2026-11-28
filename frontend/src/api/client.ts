@@ -4,6 +4,12 @@ import type {
 } from './contracts'
 
 const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+let accessToken: string | undefined
+let expireSession: () => void = () => undefined
+export function setApiSession(token?: string, onExpired: () => void = () => undefined) {
+  accessToken = token
+  expireSession = onExpired
+}
 const messages: Record<number, string> = {
   404: 'The requested snapshot or source could not be found.',
   409: 'This snapshot needs preparation. Check its graph and index status.',
@@ -14,6 +20,9 @@ const messages: Record<number, string> = {
   504: 'The request timed out.',
 }
 const actions: Record<string, string> = {
+  repository_limit: 'You have reached the repository limit. Remove a repository before adding another.',
+  ingestion_busy: 'An ingestion is already running. Wait for it to finish before retrying.',
+  github_rate_limited: 'GitHub has temporarily limited requests. Wait before retrying.',
   generation_unavailable: 'Set the generation endpoint and model in the backend environment. Search and graph exploration are still available.',
   embedding_unavailable: 'Configure the pinned embedding model on the backend before using this retrieval mode.',
   vector_index_unavailable: 'Build the vector index for this snapshot from the repository workspace.',
@@ -21,7 +30,7 @@ const actions: Record<string, string> = {
   graph_analysis_unavailable: 'Analyze this snapshot with the graph CLI from the repository workspace.',
 }
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, public requestId: string | null, message: string) {
+  constructor(public status: number, public code: string, public requestId: string | null, message: string, public retryAfter?: number) {
     super(message)
   }
 }
@@ -37,19 +46,22 @@ function errorFields(body: unknown) {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, payload?: object): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, payload?: object, method = payload ? 'POST' : 'GET'): Promise<T> {
   let response: Response
+  const token = accessToken
   try {
     response = await fetch(base + '/api/v1' + path, {
       signal,
-      headers: payload ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' },
-      method: payload ? 'POST' : 'GET', body: payload ? JSON.stringify(payload) : undefined,
+      headers: { Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      method, body: payload ? JSON.stringify(payload) : undefined,
       redirect: 'error',
     })
   } catch (error) {
     if (signal?.aborted) throw error
     throw new ApiError(0, 'network_error', null, 'The backend could not be reached. Check that it is running.')
   }
+  if (response.status === 204) return undefined as T
   let body: unknown
   try {
     body = await response.json()
@@ -57,9 +69,13 @@ async function request<T>(path: string, signal?: AbortSignal, payload?: object):
     if (signal?.aborted) throw error
   }
   if (!response.ok) {
+    if (response.status === 401 && token && accessToken === token) expireSession()
     const { code, message, id } = errorFields(body)
+    const retry = response.headers.get('Retry-After')
+    const seconds = retry && /^\d{1,6}$/.test(retry) ? Number(retry) : undefined
+    const detail = (code && Object.hasOwn(actions, code) ? actions[code] : message) || messages[response.status] || 'The request failed.'
     throw new ApiError(response.status, code ?? 'http_error', id ?? response.headers.get('X-Request-ID'),
-      (code && Object.hasOwn(actions, code) ? actions[code] : message) || messages[response.status] || 'The request failed.')
+      seconds && code !== 'repository_limit' ? detail + ' Retry in about ' + seconds + ' seconds.' : detail, seconds)
   }
   if (!body || typeof body !== 'object') {
     throw new ApiError(502, 'invalid_response', response.headers.get('X-Request-ID'), 'The backend returned an invalid response.')
@@ -75,6 +91,11 @@ const withQuery = (path: string, entries: [string, string | number | null | unde
 }
 
 export const api = {
+  provision: () => request<Workspace>('/workspace', undefined, undefined, 'POST'),
+  workspace: (signal?: AbortSignal) => request<Workspace>('/workspace', signal),
+  removeRepository: (id: string) => request<void>('/workspace/repositories/' + encodeURIComponent(id), undefined, undefined, 'DELETE'),
+  removeWorkspace: () => request<void>('/workspace', undefined, undefined, 'DELETE'),
+  removeAccount: () => request<void>('/workspace/account', undefined, undefined, 'DELETE'),
   ingest: (repository: string, ref?: string) => request<Snapshot>('/repositories/ingestions', undefined, { repository, ref }),
   snapshot: (id: string, signal?: AbortSignal) => request<Snapshot>('/ingestions/' + encodeURIComponent(id), signal),
   readiness: (id: string, signal?: AbortSignal) => request<Readiness>(scope(id) + '/readiness', signal),
@@ -93,4 +114,11 @@ export const api = {
     request<SearchResponse>(withQuery(scope(id) + '/search/' + mode, [['q', q], ['limit', limit]]), signal),
   answer: (id: string, question: string, mode: Mode, signal?: AbortSignal) =>
     request<Answer>(scope(id) + '/answer', signal, { question, retrieval_mode: mode }),
+}
+
+export interface Workspace {
+  id: string
+  repository_count: number
+  repository_limit: number
+  snapshots: { id: string; repository: string; commit_sha: string; snapshot_id: string }[]
 }
