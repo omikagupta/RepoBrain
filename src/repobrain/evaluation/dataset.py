@@ -1,4 +1,5 @@
 import json
+import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
@@ -115,6 +116,8 @@ def digests(files: Mapping[str, Path]) -> dict[str, str]:
 def write_freeze(
     path: Path, version: str, implementation: str, files: Mapping[str, Path]
 ) -> None:
+    if not re.fullmatch(r"[a-f0-9]{40}", implementation):
+        raise ValueError("Freeze requires a full implementation commit")
     with path.open("x", encoding="utf-8") as output:
         json.dump(
             {
@@ -132,5 +135,13 @@ def write_freeze(
 
 def verify_freeze(path: Path, version: str, files: Mapping[str, Path]) -> None:
     manifest = json.loads(path.read_text(encoding="utf-8"))
-    if manifest.get("version") != version or manifest.get("sha256") != digests(files):
+    if (
+        not isinstance(manifest, dict)
+        or set(manifest)
+        != {"version", "implementation_commit", "annotation_status", "sha256"}
+        or manifest.get("version") != version
+        or manifest.get("annotation_status") != "machine-assisted"
+        or not re.fullmatch(r"[a-f0-9]{40}", str(manifest.get("implementation_commit")))
+        or manifest.get("sha256") != digests(files)
+    ):
         raise ValueError("Frozen inputs changed. Create a new dataset version.")

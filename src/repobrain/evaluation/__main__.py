@@ -17,6 +17,7 @@ from repobrain.database.models import (
     SourceChunk,
     SourceFile,
 )
+from repobrain.evaluation.config import Protocol
 from repobrain.evaluation.dataset import (
     Question,
     read_questions,
@@ -55,7 +56,12 @@ async def execute(args: argparse.Namespace) -> None:
     if args.action in {"retrieve", "score"}:
         verify_freeze(freeze, version, files)
     repository_rows = json.loads(files["repositories"].read_text(encoding="utf-8"))
-    repositories = {row["repository"]: row["commit_sha"] for row in repository_rows}
+    repositories = {
+        row["repository"]: row["commit_sha"]
+        for row in repository_rows
+        if row.get("status") == "selected"
+        or (args.action == "prepare" and row.get("status") != "excluded")
+    }
     settings = Settings()
     configure_logging(settings.log_level_number)
     engine = create_database_engine(settings)
@@ -104,7 +110,7 @@ async def execute(args: argparse.Namespace) -> None:
         finally:
             await engine.dispose()
         return
-    configuration = json.loads(files["configuration"].read_text(encoding="utf-8"))
+    configuration = Protocol.model_validate_json(files["configuration"].read_bytes())
     benchmark = read_questions(files["benchmark"])
     development = read_questions(files["development"])
     snapshots: dict[tuple[str, str], UUID] = {}
@@ -169,9 +175,7 @@ async def execute(args: argparse.Namespace) -> None:
                         Chunk(str(id_), Span(repo, sha, path, start, end))
                         for id_, path, start, end in chunks
                     ]
-            report = summarize(
-                benchmark, inventory, run_directory, int(configuration["seed"])
-            )
+            report = summarize(benchmark, inventory, run_directory, configuration.seed)
             with args.output.open("x", encoding="utf-8") as handle:
                 json.dump(report, handle, indent=2, allow_nan=False)
                 handle.write("\n")
@@ -183,18 +187,33 @@ async def execute(args: argparse.Namespace) -> None:
                 async with sessions() as session:
                     if mode == "lexical":
                         return await lexical_search(
-                            session, snapshot, question.question, 30
+                            session,
+                            snapshot,
+                            question.question,
+                            configuration.result_limit,
                         )
                     if mode == "vector":
                         return await vector_search(
-                            session, snapshot, question.question, 30, provider
+                            session,
+                            snapshot,
+                            question.question,
+                            configuration.result_limit,
+                            provider,
                         )
                     if mode == "hybrid":
                         return await hybrid_search(
-                            session, snapshot, question.question, 30, provider
+                            session,
+                            snapshot,
+                            question.question,
+                            configuration.result_limit,
+                            provider,
                         )
                     return await graph_search(
-                        session, snapshot, question.question, 30, provider
+                        session,
+                        snapshot,
+                        question.question,
+                        configuration.result_limit,
+                        provider,
                     )
 
             await run_retrieval(
@@ -202,8 +221,8 @@ async def execute(args: argparse.Namespace) -> None:
                 benchmark,
                 sha256(freeze.read_bytes()).hexdigest(),
                 retrieve,
-                seed=int(configuration["seed"]),
-                timeout=float(configuration["timeout_seconds"]),
+                seed=configuration.seed,
+                timeout=configuration.timeout_seconds,
             )
     finally:
         await engine.dispose()

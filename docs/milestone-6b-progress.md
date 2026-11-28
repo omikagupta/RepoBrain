@@ -78,3 +78,13 @@ for both methods. Report denominators expose failed repetitions explicitly.
 Insufficient-evidence questions report retrieval behavior without relevance
 scores. Latency quantiles use successful requests, while failure durations
 remain in the failure records.
+
+## Verified Tomli vector index
+
+The pinned CPU ONNX model built 156 vectors on the same stored Tomli snapshot.
+The builder reported `cosine-exact-v1`, `python-lines-v1`, model revision
+`516f4baf13dec4ddddda8631e019b5737c8bc250`, 768 dimensions, and
+`onnx-int8-mean-l2-512-v1`. Tomli is selected and Requests is excluded.
+Platformdirs and More Itertools remain provisional. The latest quota check
+still showed 3 requests remaining, below the budget required by either.
+No final dataset has been frozen and no retrieval experiments have run.
