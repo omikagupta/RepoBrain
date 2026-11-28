@@ -26,7 +26,11 @@ async def export_answer_review(
     ):
         for index, (question, mode) in enumerate(cases, 1):
             case_id = f"case-{index:04}"
-            private: dict[str, object] = {"case_id": case_id, "mode": mode}
+            private: dict[str, object] = {
+                "case_id": case_id,
+                "question_id": question.question_id,
+                "mode": mode,
+            }
             try:
                 result = await answer(question, mode)
                 if (
@@ -37,8 +41,28 @@ async def export_answer_review(
                     raise ValueError("Answer identity or retrieval mode mismatch")
             except ExplorationError as exc:
                 private["error"] = exc.code
+            except TimeoutError:
+                private["error"] = "timeout"
+            except Exception as exc:
+                private["error"] = type(exc).__name__
             else:
-                private.update(result.model_dump(mode="json"))
+                private.update(
+                    result.model_dump(
+                        mode="json",
+                        include={
+                            "generator",
+                            "prompt_version",
+                            "citation_status",
+                            "status",
+                            "retrieval_ms",
+                            "generation_ms",
+                            "total_ms",
+                            "evidence_bytes",
+                            "usage",
+                            "context_truncated",
+                        },
+                    )
+                )
                 blinded = {
                     "case_id": case_id,
                     "question": question.question,
@@ -49,7 +73,15 @@ async def export_answer_review(
                     "claims": [claim.model_dump() for claim in result.claims],
                     "citations": [
                         citation.model_dump(
-                            mode="json", exclude={"rank", "score", "provenance"}
+                            mode="json",
+                            include={
+                                "citation_id",
+                                "path",
+                                "start_line",
+                                "end_line",
+                                "text",
+                                "permalink",
+                            },
                         )
                         for citation in result.citations
                     ],

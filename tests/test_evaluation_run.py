@@ -3,9 +3,10 @@ from pathlib import Path
 
 import pytest
 
+from repobrain.evaluation.config import MEASURED, MEASURED_IDS, REPETITIONS
 from repobrain.evaluation.dataset import Question
 from repobrain.evaluation.report import summarize
-from repobrain.evaluation.run import Mode, Retrieval, run_retrieval
+from repobrain.evaluation.run import MODES, Mode, Retrieval, run_retrieval
 from repobrain.graph.exploration import ExplorationError
 
 
@@ -38,15 +39,22 @@ async def test_failures_are_retained_and_resume_is_idempotent(tmp_path: Path) ->
 
     directory = tmp_path / "fixture"
     await run_retrieval(directory, [question], "fixture", fail, seed=1, timeout=1)
-    rows = [json.loads(path.read_text()) for path in directory.glob("[0-3]-*.json")]
-    assert calls == len(rows) == 16
-    assert sum(row["error"] == "timeout" for row in rows) == 4
+    rows = [
+        json.loads(path.read_text())
+        for rep in REPETITIONS
+        for path in directory.glob(f"{rep}-*.json")
+    ]
+    expected = len(MODES) * len(REPETITIONS)
+    assert calls == len(rows) == expected
+    assert sum(row["error"] == "timeout" for row in rows) == len(REPETITIONS)
     assert all("sensitive" not in str(row) for row in rows)
     report = summarize([question], {}, directory, seed=1)
-    assert report["measured_executions"] == 12
+    assert report["measured_executions"] == len(MODES) * MEASURED
+    assert report["preliminary"] is True
+    assert report["incomplete"] is False
     failures = report["failures"]
     assert isinstance(failures, list)
-    assert len(failures) == 12
+    assert len(failures) == len(MODES) * MEASURED
     observations = report["observations"]
     assert isinstance(observations, list)
     assert len(observations) == 4
@@ -56,6 +64,12 @@ async def test_failures_are_retained_and_resume_is_idempotent(tmp_path: Path) ->
     )
     assert all("recall@10" not in item["metrics"] for item in observations)
     await run_retrieval(directory, [question], "fixture", fail, seed=1, timeout=1)
-    assert calls == 16
+    assert calls == expected
+    (directory / f"{MEASURED_IDS.start}-0-vector.json").unlink()
+    partial = summarize([question], {}, directory, seed=1)
+    assert partial["incomplete"] is True
+    assert partial["measured_executions"] == len(MODES) * MEASURED - 1
+    await run_retrieval(directory, [question], "fixture", fail, seed=1, timeout=1)
+    assert calls == expected + 1
     with pytest.raises(ValueError, match="configuration changed"):
         await run_retrieval(directory, [question], "changed", fail, seed=1, timeout=1)

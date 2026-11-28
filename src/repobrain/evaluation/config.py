@@ -8,6 +8,11 @@ from repobrain.search.graph_enhanced import ExpansionPolicy
 from repobrain.search.hybrid import FusionPolicy
 from repobrain.search.vector import VECTOR_VERSION
 
+WARMUP = 1
+MEASURED = 3
+MEASURED_IDS = range(WARMUP, WARMUP + MEASURED)
+REPETITIONS = range(WARMUP + MEASURED)
+
 
 class Protocol(BaseModel):
     model_config = ConfigDict(strict=True, extra="forbid")
@@ -31,6 +36,8 @@ class Protocol(BaseModel):
 
     @model_validator(mode="after")
     def match_production(self) -> Self:
+        if (self.warmup_passes, self.measured_repetitions) != (WARMUP, MEASURED):
+            raise ValueError("Unexpected repetition policy")
         expansion = ExpansionPolicy()
         expected = (
             VERSION,

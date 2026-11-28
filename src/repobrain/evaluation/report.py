@@ -5,9 +5,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from statistics import mean, median
 
+from repobrain.evaluation.config import MEASURED, MEASURED_IDS
 from repobrain.evaluation.dataset import Question
 from repobrain.evaluation.metrics import Chunk, Judgment, Span, paired_bootstrap, score
-from repobrain.evaluation.run import MODES
+from repobrain.evaluation.run import MODES, Mode
 
 
 def summarize(
@@ -18,28 +19,31 @@ def summarize(
 ) -> dict[str, object]:
     by_id = {item.question_id: item for item in questions}
     runs = defaultdict(list)
-    for path in sorted(directory.glob("[1-3]-*.json")):
+    for path in sorted(
+        path for rep in MEASURED_IDS for path in directory.glob(f"{rep}-*.json")
+    ):
         row = json.loads(path.read_text(encoding="utf-8"))
         runs[row["question_id"], row["mode"]].append(row)
     expected = {(item.question_id, mode) for item in questions for mode in MODES}
-    if runs.keys() != expected or any(
-        sorted(row["repetition"] for row in rows) != [1, 2, 3] for rows in runs.values()
+    if runs.keys() - expected or any(
+        len({row["repetition"] for row in rows}) != len(rows)
+        or any(row["repetition"] not in MEASURED_IDS for row in rows)
+        for rows in runs.values()
     ):
-        raise ValueError(
-            "Report requires all three measured repetitions, including failures"
-        )
+        raise ValueError("Unexpected or duplicate measured repetitions")
 
     observations = []
     failures: list[dict[str, object]] = []
-    groups: dict[tuple[str, str], list[dict[str, float]]] = defaultdict(list)
-    timings: dict[tuple[str, str], list[float]] = defaultdict(list)
+    groups: dict[tuple[str, Mode], list[dict[str, float]]] = defaultdict(list)
+    timings: dict[tuple[str, Mode], list[float]] = defaultdict(list)
     pairs: dict[tuple[str, str], float] = {}
     complete: set[tuple[str, str]] = set()
-    denominators: dict[tuple[str, str], list[int]] = defaultdict(lambda: [0, 0, 0])
-    all_question_scores: dict[tuple[str, str], list[dict[str, float]]] = defaultdict(
+    denominators: dict[tuple[str, Mode], list[int]] = defaultdict(lambda: [0, 0, 0, 0])
+    all_question_scores: dict[tuple[str, Mode], list[dict[str, float]]] = defaultdict(
         list
     )
-    for (question_id, mode), rows in sorted(runs.items()):
+    for question_id, mode in sorted(expected):
+        rows = runs[question_id, mode]
         question = by_id[question_id]
         repo, sha = question.repository, question.commit_sha
         group_names = [
@@ -48,13 +52,14 @@ def summarize(
             f"category/{question.category}",
         ]
         successful = [row for row in rows if "error" not in row]
-        if len(successful) == 3:
+        if len(successful) == MEASURED:
             complete.add((question_id, mode))
         for group in group_names:
             counts = denominators[group, mode]
             counts[0] += 1
-            counts[1] += 3 - len(successful)
-            counts[2] += int(len(successful) == 3)
+            counts[1] += len(rows) - len(successful)
+            counts[2] += int(len(successful) == MEASURED)
+            counts[3] += MEASURED - len(rows)
         failures.extend(
             {
                 "question_id": question_id,
@@ -98,7 +103,7 @@ def summarize(
                 )
         for group in group_names:
             all_question_scores[group, mode].append(metrics)
-            if len(successful) == 3:
+            if len(successful) == MEASURED:
                 groups[group, mode].append(metrics)
             timings[group, mode].extend(latencies)
         observations.append(
@@ -108,6 +113,7 @@ def summarize(
                 "metrics": metrics,
                 "median_ms": median(latencies) if latencies else None,
                 "successful_repetitions": len(successful),
+                "missing_repetitions": MEASURED - len(rows),
             }
         )
         if question.category == "cross-file":
@@ -115,7 +121,7 @@ def summarize(
 
     breakdowns = []
     for (group, mode), values in sorted(all_question_scores.items()):
-        total, failed, complete_count = denominators[group, mode]
+        total, failed, complete_count, missing = denominators[group, mode]
         complete_values = groups[group, mode]
         columns = {key for row in values for key in row}
         latency = sorted(timings[group, mode])
@@ -126,6 +132,7 @@ def summarize(
                 "questions": total,
                 "complete_questions": complete_count,
                 "failed_executions": failed,
+                "missing_executions": missing,
                 "successful_executions": len(latency),
                 "median_ms": median(latency) if latency else None,
                 "p95_ms": latency[math.ceil(0.95 * len(latency)) - 1]
@@ -180,9 +187,16 @@ def summarize(
                 else None,
             }
         )
+    expected_count = len(expected) * MEASURED
+    observed_count = sum(map(len, runs.values()))
     return {
         "annotation_status": sorted({item.annotation_status for item in questions}),
-        "measured_executions": len(expected) * 3,
+        "preliminary": any(
+            item.annotation_status != "human-reviewed" for item in questions
+        ),
+        "incomplete": observed_count != expected_count,
+        "measured_executions": observed_count,
+        "expected_measured_executions": expected_count,
         "failures": failures,
         "observations": observations,
         "breakdowns": breakdowns,

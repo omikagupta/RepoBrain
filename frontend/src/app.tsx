@@ -46,7 +46,7 @@ function Shell({ snapshot, id, children }: { snapshot?: Snapshot; id?: string; c
             try { localStorage.setItem('repobrain.theme', next) } catch { /* preference is optional */ }
           }}>{theme === 'dark' ? <Sun size={17} /> : <Moon size={17} />}</button></div>
       </header>
-      <main id="workspace-main" className="main">{children}</main>
+      <main id="workspace-main" className="main" tabIndex={-1}>{children}</main>
     </div>
   </div>
 }

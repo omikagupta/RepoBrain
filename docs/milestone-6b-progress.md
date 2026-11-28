@@ -88,3 +88,10 @@ The builder reported `cosine-exact-v1`, `python-lines-v1`, model revision
 Platformdirs and More Itertools remain provisional. The latest quota check
 still showed 3 requests remaining, below the budget required by either.
 No final dataset has been frozen and no retrieval experiments have run.
+
+The runner and report use shared warm-up and measured repetition constants.
+Partial reports identify missing attempts separately from recorded failures,
+and machine-assisted results carry a preliminary flag. Blinded answer
+exports omit rank and provenance metadata and keep the method key separate.
+The private Compose overlay disables generation and removes the backend
+host port. Remote authentication and HTTPS still require a trusted gateway.

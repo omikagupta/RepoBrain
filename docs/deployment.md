@@ -6,6 +6,12 @@ Leave generation unset while preparing or demonstrating public snapshots.
 Keep PostgreSQL on the internal Compose network and publish neither Docker
 socket access nor a database listener.
 
+Apply `compose.private.yaml` last with a unique `POSTGRES_PASSWORD`.
+It removes the backend host port and generation credentials from the
+effective configuration, applies resource limits, and leaves only the
+loopback frontend port available. Initialize migrations before serving
+requests. Use an existing authenticated HTTPS gateway for remote access.
+
 For private remote access, place the frontend behind an authenticated HTTPS
 gateway or a private network. Keep the frontend and API on the same origin.
 Enforce authentication and an allowlist before forwarding any request to

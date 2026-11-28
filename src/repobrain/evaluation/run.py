@@ -7,6 +7,7 @@ from pathlib import Path
 from time import perf_counter
 from typing import Literal
 
+from repobrain.evaluation.config import REPETITIONS
 from repobrain.evaluation.dataset import Question
 from repobrain.graph.exploration import ExplorationError
 from repobrain.search.graph_enhanced import GraphSearchResponse
@@ -47,7 +48,7 @@ async def run_retrieval(
                 handle,
             )
     rng = random.Random(seed)
-    for repetition in range(4):
+    for repetition in REPETITIONS:
         combinations = [
             (index, question, mode)
             for index, question in enumerate(questions)
