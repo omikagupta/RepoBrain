@@ -46,3 +46,24 @@ def test_abstention_and_constant_bootstrap() -> None:
     assert score([], [], [], 5)["recall"] is None
     assert paired_bootstrap([0.25, 0.25], 105) == (0.25, 0.25, 0.25)
     assert paired_bootstrap([-1, 0, 1], 105) == paired_bootstrap([-1, 0, 1], 105)
+
+
+def test_chunk_gain_uses_max_grade_and_deduplicates_inventory_ids() -> None:
+    labels = [Judgment(span(1, 4), 2, "main"), Judgment(span(2, 3), 1, "detail")]
+    a = Chunk("a", span(1, 4))
+    b = Chunk("b", span(2, 5))
+    got = score([a, a, b], [a, a, b], labels, 2)
+    assert got["ndcg"] == got["precision"] == 1
+    assert score([a], [a, b], labels, 2)["ndcg"] == pytest.approx(3 / (3 + 3 / log2(3)))
+
+
+def test_file_representation_is_distinct_from_covering_all_essential_spans() -> None:
+    a = Chunk("a", span(1, 2))
+    labels = [
+        Judgment(a.span, 2, "entry"),
+        Judgment(span(10, 12), 2, "dispatch"),
+        Judgment(span(1, 2, "other.py"), 2, "downstream"),
+    ]
+    got = score([a], [a], labels, 5)
+    assert got["file_representation"] == 0.5
+    assert got["file_coverage"] == 0.0

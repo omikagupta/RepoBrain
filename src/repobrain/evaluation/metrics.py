@@ -60,16 +60,20 @@ def dcg(ranks: Sequence[int]) -> float:
     )
 
 
+def unique_chunks(chunks: Sequence[Chunk]) -> list[Chunk]:
+    by_id: dict[str, Chunk] = {}
+    for chunk in chunks:
+        by_id.setdefault(chunk.id, chunk)
+    return list(by_id.values())
+
+
 def score(
     retrieved: Sequence[Chunk],
     inventory: Sequence[Chunk],
     labels: Sequence[Judgment],
     k: int,
 ) -> dict[str, float | bool | None]:
-    by_id: dict[str, Chunk] = {}
-    for chunk in retrieved:
-        by_id.setdefault(chunk.id, chunk)
-    ranked = list(by_id.values())
+    ranked = unique_chunks(retrieved)
     relevance = grades(ranked, labels)
     top = [chunk.span for chunk in ranked[:k]]
     positive = {label.span for label in labels if label.grade > 0}
@@ -91,7 +95,10 @@ def score(
             if label.grade == 2 and label.group == group
         )
     }
-    ideal = dcg(sorted(grades(inventory, labels), reverse=True)[:k])
+    represented_files = {span.path for span in essential & matches}
+    # Standard graded chunk nDCG gives distinct overlapping chunks independent
+    # gains. A chunk gets its maximum matched grade once, even with many labels.
+    ideal = dcg(sorted(grades(unique_chunks(inventory), labels), reverse=True)[:k])
     return {
         "precision": sum(value > 0 for value in relevance[:k]) / k,
         "recall": len(matches) / len(positive) if positive else None,
@@ -103,6 +110,7 @@ def score(
         if essential
         else None,
         "file_coverage": len(matched_files) / len(files) if files else None,
+        "file_representation": len(represented_files) / len(files) if files else None,
         "group_coverage": len(matched_groups) / len(groups) if groups else None,
         "complete_groups": groups == matched_groups if groups else None,
     }

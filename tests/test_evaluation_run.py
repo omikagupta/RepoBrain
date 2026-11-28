@@ -47,7 +47,14 @@ async def test_failures_are_retained_and_resume_is_idempotent(tmp_path: Path) ->
     failures = report["failures"]
     assert isinstance(failures, list)
     assert len(failures) == 12
-    assert report["observations"] == []
+    observations = report["observations"]
+    assert isinstance(observations, list)
+    assert len(observations) == 4
+    assert all(
+        item["successful_repetitions"] == 0 and item["median_ms"] is None
+        for item in observations
+    )
+    assert all("recall@10" not in item["metrics"] for item in observations)
     await run_retrieval(directory, [question], "fixture", fail, seed=1, timeout=1)
     assert calls == 16
     with pytest.raises(ValueError, match="configuration changed"):

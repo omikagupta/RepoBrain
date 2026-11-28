@@ -41,3 +41,37 @@ makes individual blob requests, so archive
 counts alone do not establish compatibility. No candidate is confirmed and
 there are no accepted chunk or graph counts. Retry after the quota resets or
 screen smaller repositories against the existing constraints.
+
+## Follow-up screening
+
+The rate endpoint later reported 60 of 60 unauthenticated requests available.
+Requests at `3c7baaa05ab4aa49cc819ce3a819d260de19c157` then completed production
+ingestion and graph and lexical indexing. It stored 37 Python files and
+produced 1,409 chunks across 36 files, 844 nodes, 1,101 edges and 585 graph
+diagnostics. This pin exceeds the production vector builder's 1,000-chunk
+limit and is ineligible for the four-method benchmark. No limits were raised.
+
+Tomli at `43a86ade8b795c6ef9b4ec53372a607cd1ed426f` completed production
+ingestion, graph analysis, and lexical indexing. Observed preparation
+output reported 14 stored and analyzed Python files, 156 chunks across 14
+files, 94 graph nodes, 101 graph edges, and 78 diagnostics. The vector
+build and annotation review are pending. Smaller pinned alternatives
+downloaded for screening include Platformdirs and More Itertools.
+
+## Scoring decisions
+
+Graded chunk nDCG assigns each distinct chunk ID its highest matched grade,
+with gain `2^grade - 1` and discount `log2(rank + 1)`. The ideal sorts the
+complete deduplicated inventory using the same rule. Distinct overlapping
+chunks can each earn gain. Span recall counts a union of lines, so overlapping
+chunks cannot double-count coverage. File representation requires at least
+one essential span to meet the overlap rule. File coverage requires every
+essential span in that file to meet it.
+
+All-question scores use the first successful measured ranking, or an empty
+ranking when all attempts fail. Complete cases require three successful
+repetitions for each included method. Paired complete cases require this
+for both methods. Report denominators expose failed repetitions explicitly.
+Insufficient-evidence questions report retrieval behavior without relevance
+scores. Latency quantiles use successful requests, while failure durations
+remain in the failure records.
