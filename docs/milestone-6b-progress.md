@@ -115,3 +115,13 @@ The private Compose stack started on loopback with generation disabled and
 without backend or database host ports. Frontend health returned 200. The
 first API probe returned 500 before migrations. A fresh isolated run applied
 Alembic first and returned the expected 404 through the same-origin API.
+
+## Third selected snapshot
+
+After quota recovered, production preparation of `uiri/toml` at
+`65bab7582ce14c55cdeec2244c65ea23039c9e6f` succeeded. It stored and
+analyzed 10 Python files, indexed 199 lexical chunks across nine files
+and built 199 vectors with the pinned CPU model. It produced 115 graph
+nodes, 118 edges, and 45 diagnostics. The package includes a bidirectional
+serialization API and separate decoder, encoder, timezone, and ordered
+mapping modules. Selecting two TOML libraries limits architectural diversity.

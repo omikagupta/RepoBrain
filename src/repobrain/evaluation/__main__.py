@@ -19,6 +19,7 @@ from repobrain.database.models import (
     IngestionState,
     Repository,
     RepositorySnapshot,
+    SearchIndex,
     SourceChunk,
     SourceFile,
     VectorIndex,
@@ -49,6 +50,13 @@ from repobrain.settings import Settings
 
 
 async def execute(args: argparse.Namespace) -> None:
+    settings = Settings()
+    if args.action == "answers" and (
+        settings.generation_endpoint is None
+        or urlsplit(settings.generation_endpoint).hostname not in {"127.0.0.1", "::1"}
+        or settings.generation_api_key is not None
+    ):
+        raise ValueError("Answer evaluation requires a keyless loopback provider")
     root: Path = args.root
     version: str = args.version
     if not version.startswith("benchmark-v") or not version[11:].isdigit():
@@ -69,7 +77,6 @@ async def execute(args: argparse.Namespace) -> None:
         if row.get("status") == "selected"
         or (args.action == "prepare" and row.get("status") != "excluded")
     }
-    settings = Settings()
     configure_logging(settings.log_level_number)
     engine = create_database_engine(settings)
     sessions = create_session_factory(engine)
@@ -153,27 +160,29 @@ async def execute(args: argparse.Namespace) -> None:
             async with sessions() as session:
                 for (repo, _), snapshot in snapshots.items():
                     analysis = await session.get(GraphAnalysis, snapshot)
+                    lexical_index = await session.get(SearchIndex, snapshot)
                     vector_index = await session.get(VectorIndex, snapshot)
-                    if analysis is None or vector_index is None:
+                    if (
+                        analysis is None
+                        or lexical_index is None
+                        or vector_index is None
+                    ):
                         raise ValueError(
                             f"{repo} lacks a completed graph or vector index"
                         )
                     compatible(vector_index, MODEL)
+                    if (
+                        lexical_index.chunking_version != VERSION
+                        or lexical_index.chunk_count != vector_index.chunk_count
+                    ):
+                        raise ValueError(
+                            f"{repo} has incompatible lexical and vector indexes"
+                        )
         if args.action == "freeze":
             write_freeze(freeze, version, args.implementation, files)
         elif args.action == "review":
             write_review(args.output, [*development, *benchmark])
         elif args.action == "answers":
-            # The experiment command deliberately rejects remote endpoints.
-            if (
-                settings.generation_endpoint is None
-                or urlsplit(settings.generation_endpoint).hostname
-                not in {"127.0.0.1", "::1"}
-                or settings.generation_api_key is not None
-            ):
-                raise ValueError(
-                    "Answer evaluation requires a keyless loopback provider"
-                )
             embedding = LocalOnnxProvider(settings.vector_model_dir)
             generation = Generation(
                 OpenAICompatibleProvider(settings), settings.generation_timeout, 1
