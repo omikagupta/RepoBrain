@@ -86,4 +86,30 @@ contains 36 blinded cases from the production answer service with a keyless
 loopback fixture. There were 27 fixture responses with structurally valid
 citations, nine lexical abstentions, and zero errors. The fixture did not
 report token usage. It verifies integration and export behavior. Semantic
-quality evaluation with a local model and human scoring remains pending.
+quality requires independent human scoring.
+
+## Local-model development run
+
+Ollama 0.40.19 ran Qwen2.5 1.5B Q4_K_M (`65ec06548149`) on CPU through
+the production OpenAI-compatible answer pipeline with a keyless loopback
+endpoint and a 120-second request timeout. The nine frozen development
+questions ran in all four retrieval modes. No benchmark questions were
+used for this generation run.
+
+| Retrieval mode | Accepted answers | No-evidence abstentions | Invalid generation output | Timeouts |
+| --- | ---: | ---: | ---: | ---: |
+| Lexical | 0 | 9 | 0 | 0 |
+| Vector | 3 | 0 | 4 | 2 |
+| Hybrid | 4 | 0 | 3 | 2 |
+| Graph-enhanced | 2 | 0 | 6 | 1 |
+
+Among nine accepted answers, median generation latency was 52.89 seconds
+(range 16.85–96.37 seconds). Ollama reported 1,029–3,634 input tokens and
+160–442 output tokens for those nine cases. These latency and usage figures
+exclude failures and no-evidence abstentions. The
+[blinded export](../evaluation/results/local-model-development/review.jsonl)
+contains 18 review cases, with rubric scores left blank. The local method key
+records all 36 cases, including failures. Keep it separate during review.
+Citations on accepted answers passed structural validation. Semantic support,
+correctness, and completeness still require independent review. This small
+development run does not establish a quality difference between methods.

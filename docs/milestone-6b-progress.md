@@ -152,3 +152,12 @@ The earlier private Compose attempt was declined because the automated
 review budget was exhausted. An approved retry migrated a separate local
 database, started the private stack, and verified the SPA and same-origin
 API. Authenticated HTTPS remains unverified without a suitable local gateway.
+
+The real local-model development run completed all 36 cases. Nine produced
+structurally valid answers, nine abstained without evidence, 13 failed output
+validation, and five timed out. The blinded export and aggregate telemetry
+are linked from the research report. The local method key stays separate for
+independent review. Benchmark-scale answer generation and semantic scoring
+remain pending. Linux validation passed 116 unit and 43 PostgreSQL tests,
+Ruff, mypy, Alembic drift, and the non-root graph smoke test. Both GitHub Actions
+jobs passed on the release verification commit.
