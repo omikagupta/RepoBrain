@@ -37,6 +37,7 @@
 .breadcrumb { display:flex; align-items:center; flex-wrap:wrap; gap:8px; min-width:0; overflow-wrap:anywhere; }
 .breadcrumb svg,.separator { color:var(--muted); flex:none; }
 .commit-pill { display:flex; align-items:center; gap:7px; padding:4px 8px; border-radius:6px; border:1px solid var(--border); color:var(--accent); }
+.commit-pill code { white-space:nowrap; }
 .main { max-width:1440px; padding:31px 30px 48px; margin:auto; min-width:0; }
 .page-stack,.stack { display:grid; gap:16px; min-width:0; align-content:start; }
 .page-stack { gap:21px; }
