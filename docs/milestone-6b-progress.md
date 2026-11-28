@@ -95,3 +95,23 @@ and machine-assisted results carry a preliminary flag. Blinded answer
 exports omit rank and provenance metadata and keep the method key separate.
 The private Compose overlay disables generation and removes the backend
 host port. Remote authentication and HTTPS still require a trusted gateway.
+
+## Candidate screening after quota recovery
+
+The recovered quota started at 60 requests. Platformdirs completed ingestion
+and graph and lexical indexing with 26 Python files, 1,805 chunks, 960 nodes,
+1,029 edges and 361 diagnostics. More Itertools completed those stages with
+7 Python files, 2,345 chunks, 1,354 nodes, 1,364 edges and 192 diagnostics.
+The production vector builder rejected both under the 1,000-chunk cap.
+
+Humanize completed all stages with 13 Python files, 235 lexical chunks and
+235 vectors, 128 nodes, 155 edges and 104 diagnostics. The pinned CPU
+embedding revision and policies matched Tomli's. Its shared localization
+and formatter modules support cross-file questions. The remaining quota
+was five requests. The ten-file `uiri/toml` archive remains provisional
+because preparation requires more calls. No final measurements were run.
+
+The private Compose stack started on loopback with generation disabled and
+without backend or database host ports. Frontend health returned 200. The
+first API probe returned 500 before migrations. A fresh isolated run applied
+Alembic first and returned the expected 404 through the same-origin API.
