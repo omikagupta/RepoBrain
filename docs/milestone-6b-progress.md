@@ -134,3 +134,9 @@ and froze the inputs before measuring retrieval. The run completed 600
 measured attempts with no recorded failures. See the
 [preliminary research report](research-report.md). Independent review,
 answer quality measurements, and the final release remain pending.
+
+The standalone audit passed against the published freeze manifest and all
+800 raw attempts. Development-only lexical probes and repository-level
+results appear in the research report. The production answer service
+completed 36 blinded development cases with a local deterministic HTTP
+fixture. Semantic quality and independent review remain pending.

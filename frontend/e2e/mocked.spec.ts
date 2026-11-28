@@ -14,6 +14,14 @@ test.beforeEach(async ({ page }) => {
   } }))
 })
 
+test('skip link moves keyboard focus to the workspace', async ({ page }) => {
+  await page.goto('/repositories')
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('link', { name: 'Skip to content' })).toBeFocused()
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('main')).toBeFocused()
+})
+
 test('reopens a snapshot, switches snapshot and handles a missing index', async ({ page }) => {
   await page.goto('/repositories')
   await page.getByLabel('GitHub repository').fill('https://unsafe.example/repo')

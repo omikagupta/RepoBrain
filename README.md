@@ -1,6 +1,21 @@
 # RepoBrain
 
-RepoBrain is a research-oriented AI code intelligence platform.
+RepoBrain is a research-oriented code intelligence workspace for exploring
+public Python repositories at immutable Git commits. Search source, follow
+dependency edges, and inspect the exact lines behind generated citations.
+
+```mermaid
+flowchart LR
+    GitHub --> Ingestion
+    Ingestion --> PostgreSQL
+    PostgreSQL --> Retrieval
+    Retrieval --> FastAPI
+    FastAPI --> React
+```
+
+Start with the [local workspace setup](#run-the-repobrain-workspace), follow
+the [demo script](docs/demo-script.md), or read the
+[preliminary research report](docs/research-report.md).
 
 RepoBrain provides a Python 3.12 FastAPI backend and PostgreSQL persistence
 for repositories, commit snapshots, and source files. The source is under
