@@ -18,6 +18,7 @@ from repobrain.database.models import (
     Workspace,
     WorkspaceSnapshot,
 )
+from repobrain.hosted_cache import claim_cache, lock_cache
 from repobrain.ingestion.github import Commit, GitHub, IngestionError, PythonFile
 from repobrain.quotas import check_repository, release, reserve
 from repobrain.settings import Settings
@@ -52,6 +53,7 @@ class IngestionService:
         self.settings = settings
         self.active = 0
         self.tasks: set[asyncio.Task[None]] = set()
+        self.task_leases: dict[asyncio.Task[None], tuple[UUID, UUID]] = {}
         self.github_resume = 0.0
 
     def note_upstream(self, error: IngestionError) -> None:
@@ -62,9 +64,12 @@ class IngestionService:
 
     async def close(self) -> None:
         tasks = tuple(self.tasks)
+        leases = tuple(self.task_leases.values())
         for task in tasks:
             task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        for lease in leases:
+            await release(self.sessions, lease)
 
     async def expire(self, session: AsyncSession, snapshot_id: UUID) -> None:
         deadline = func.statement_timestamp() - timedelta(
@@ -119,6 +124,7 @@ class IngestionService:
         owner, name = commit.repository.split("/")
         async with self.sessions.begin() as session:
             if workspace is not None:
+                await lock_cache(session)
                 owner_workspace = await session.get(
                     Workspace, workspace[0], with_for_update=True
                 )
@@ -164,6 +170,7 @@ class IngestionService:
             )
             await self.expire(session, snapshot_id)
             if workspace is not None:
+                await claim_cache(session, self.settings, snapshot_id, new is not None)
                 count = await session.scalar(
                     select(func.count())
                     .select_from(SourceFile)
@@ -234,6 +241,8 @@ class IngestionService:
                         )
                     )
                     self.tasks.add(task)
+                    if lease is not None:
+                        self.task_leases[task] = lease
                     task.add_done_callback(self.release_task)
                     scheduled = True
                 return await self.status(snapshot_id)
@@ -288,6 +297,7 @@ class IngestionService:
     def release_task(self, task: asyncio.Task[None]) -> None:
         # A task cancelled before its first step never enters run().
         self.tasks.discard(task)
+        self.task_leases.pop(task, None)
         self.active -= 1
 
     async def transition(

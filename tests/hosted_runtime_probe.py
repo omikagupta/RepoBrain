@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import sys
 from hashlib import sha1
 from pathlib import Path
@@ -22,9 +23,15 @@ async def main() -> None:
     root = Path("/sample")
     project = "sample/" + uuid4().hex
     files = sorted(root.rglob("*.py"))
+    target = int(os.getenv("REPOBRAIN_PROBE_FILES", str(len(files))))
+    assert files and 1 <= target <= 100
     blobs = {}
     tree = []
-    for path in files:
+    for index in range(target):
+        path = files[index % len(files)]
+        relative = path.relative_to(root).as_posix()
+        if target > len(files):
+            relative = f"sample_{index // len(files)}/{relative}"
         data = path.read_bytes()
         sha = sha1(
             f"blob {len(data)}\0".encode() + data, usedforsecurity=False
@@ -32,7 +39,7 @@ async def main() -> None:
         blobs[sha] = data
         tree.append(
             {
-                "path": path.relative_to(root).as_posix(),
+                "path": relative,
                 "type": "blob",
                 "mode": "100644",
                 "sha": sha,

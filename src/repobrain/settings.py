@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     hosted_public_per_minute: int = Field(default=180, ge=1, le=1000)
     hosted_inflight_requests: int = Field(default=8, ge=2, le=16)
     hosted_prepare_indexes: bool = False
+    hosted_cache_snapshots: int = Field(default=40, ge=1, le=200)
+    hosted_cache_bytes: int = Field(default=128 * 1024**2, ge=1, le=256 * 1024**2)
+    hosted_cache_retention_hours: int = Field(default=168, ge=1, le=720)
+    hosted_cache_prune: bool = False
     database_url: SecretStr | None = None
     local_db_password: SecretStr | None = Field(default=None, min_length=1)
     db_pool_size: int = Field(default=5, ge=1)

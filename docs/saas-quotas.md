@@ -32,7 +32,13 @@ The pre-authentication gate admits up to eight in-flight non-health
 requests without queuing, with a separate health budget. Each gate group
 allows 180 requests per local process minute, including unauthenticated
 attempts. Oversized queries and bodies are rejected, with an 8 KiB cap.
-Current JSON responses with a declared size over 1 MiB are rejected.
+The app buffers at most 8 KiB before routing and checks both declared and
+actual request size. The body has a five-second deadline. The app buffers
+responses up to 1 MiB, including responses without Content-Length, so an
+oversized response fails before its headers reach the client. The hosted
+profile is for bounded HTTP responses. Do not attach streaming routes to
+it. Handlers have a 75-second deadline and response sends have a separate
+five-second deadline. Hosted responses use Cache-Control: no-store.
 The database pool has no overflow and at most two connections. Pool
 saturation returns HTTP 429. GitHub throttling propagates a capped retry
 delay and temporarily pauses new upstream work within each process.
@@ -62,9 +68,55 @@ network delays and concurrent load remain unverified, and cold startup
 leaves little margin. Keep managed preparation off by default pending
 additional validation. The probe is in `tests/hosted_runtime_probe.py`.
 
+The hardening follow-up used a 96-file fixture assembled by repeating
+real project source under distinct paths (518,643 bytes). With the same
+0.1 CPU and 512 MiB container limits and mocked network latency, startup
+through ASGI health took 38.602 seconds. Ingestion and both index builds
+took 41.709 seconds. Peak cgroup memory was 107,745,280 bytes, total CPU
+use was 9.551 seconds, and graph and lexical endpoints returned HTTP 200.
+The graph had 758 nodes and 662 edges. This single run does not establish
+performance for larger source bytes, live GitHub traffic or concurrent load.
+Managed preparation remains opt-in.
+
 Migration `0006_hosted_quotas` is forward-only and adds counters and leases.
 Run the disposable PostgreSQL suite and Alembic drift checks before
 promotion. Public deployment, a gateway-level abuse policy, hosted database
 verification and a long-term retention and storage budget remain pending.
 Process-local anonymous limits do not share state across replicas or
-restarts. Repeated admission of new commits can grow the immutable cache.
+restarts.
+
+## Cache storage and retention
+
+Migration `0007_hosted_cache` marks only snapshots newly created through
+hosted ingestion. Existing snapshots and frozen benchmark records are
+never marked or pruned by this migration or retention logic. Defaults
+reserve the configured maximum source bytes per new snapshot, with caps
+of 40 tracked snapshots and 128 MiB of logical reservations. These caps
+do not measure physical PostgreSQL storage, derived indexes, or WAL.
+Monitor database size separately.
+
+Optional pruning defaults off. Enable it only after explicit operator
+approval and a verified backup. It reclaims at most ten tracked snapshots
+per admission, only when they are ungranted and older than the retention
+window (seven days by default). Grant creation and pruning share a
+transaction lock. Newly claimed snapshots are touched so a bounded
+collection or indexing job has time to finish. A storage denial returns
+429. It preserves all existing grants and consumes an already-admitted
+daily attempt. Existing or frozen data should remain outside the hosted
+cache lifecycle. Keep research on its own database.
+
+## Gateway preparation
+
+`deploy/nginx/hosted-gateway.conf` is a local-tested template for a
+dedicated TLS gateway. It caps API rate globally and per direct peer,
+bounds concurrent connections and request bodies, and forwards API
+traffic without retries. It ignores inbound forwarded addresses when
+forming the outgoing client address. Terminate TLS with operator-provided
+certificate files and replace the example host and auth origin. Keep the
+backend, frontend upstream and database listeners private. If a trusted
+load balancer fronts the gateway, configure its exact trusted proxy
+addresses before relying on per-client limits. Supabase sign-in endpoints
+are outside this gateway and require independent provider-side controls.
+The template passed `nginx -t` with a local certificate. Public ingress,
+production certificate renewal, and real proxy-chain behavior remain
+unverified.
