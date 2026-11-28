@@ -57,6 +57,9 @@ output reported 14 stored and analyzed Python files, 156 chunks across 14
 files, 94 graph nodes, 101 graph edges, and 78 diagnostics. The vector
 build and annotation review are pending. Smaller pinned alternatives
 downloaded for screening include Platformdirs and More Itertools.
+After Tomli, GitHub reported 3 of 60 unauthenticated requests remaining.
+The next screened archive needs more calls than that, so no further live
+preparation was attempted during this quota window.
 
 ## Scoring decisions
 
