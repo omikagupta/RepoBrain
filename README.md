@@ -580,3 +580,14 @@ answer demonstration. CI publishes screenshots in its browser results
 artifact. This is a single-developer workspace. Keep it loopback-only.
 Public paid generation requires authentication, isolation and rate limits.
 Cancelling in the browser may leave upstream work and billing running.
+## Preliminary research results
+
+The frozen 50-question benchmark recorded 600 successful measured retrieval
+attempts across four production methods. On the 24 cross-file questions,
+graph-enhanced Recall@10 was 63.89% versus 62.50% for hybrid RRF. The paired
+95% bootstrap interval for the difference was −6.94 to +9.72 percentage points.
+The annotations are machine-assisted and await independent review.
+
+See the [research report](docs/research-report.md) and
+[evaluation protocol](docs/evaluation.md) for limitations and reproduction.
+
