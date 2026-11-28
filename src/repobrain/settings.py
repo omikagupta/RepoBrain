@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     )
 
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    deployment_mode: Literal["local", "hosted"] = "local"
+    auth_issuer: str | None = Field(default=None, max_length=512)
+    auth_audience: str = Field(default="authenticated", min_length=1, max_length=128)
     database_url: SecretStr | None = None
     local_db_password: SecretStr | None = Field(default=None, min_length=1)
     db_pool_size: int = Field(default=5, ge=1)
@@ -99,6 +102,34 @@ class Settings(BaseSettings):
             database="repobrain",
         )
         self.database_url = SecretStr(url.render_as_string(hide_password=False))
+        return self
+
+    @model_validator(mode="after")
+    def validate_deployment(self) -> Self:
+        if self.deployment_mode == "local":
+            if self.auth_issuer is not None:
+                raise ValueError("set hosted mode to enable authentication")
+            return self
+        if self.database_url is None or self.auth_issuer is None:
+            raise ValueError("hosted mode requires a database and auth issuer")
+        if self.vector_model_dir is not None or self.generation_endpoint is not None:
+            raise ValueError("hosted mode disables vector inference and generation")
+        url = urlsplit(self.auth_issuer)
+        if not (
+            url.hostname
+            and url.username is None
+            and url.password is None
+            and not url.query
+            and not url.fragment
+            and url.path == "/auth/v1"
+            and not any(char.isspace() for char in self.auth_issuer)
+            and "\\" not in self.auth_issuer
+            and (
+                url.scheme == "https"
+                or (url.scheme == "http" and url.hostname in {"127.0.0.1", "::1"})
+            )
+        ):
+            raise ValueError("invalid trusted auth issuer")
         return self
 
     @property

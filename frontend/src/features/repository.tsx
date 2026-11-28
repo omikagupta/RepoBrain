@@ -7,10 +7,12 @@ import { api } from '../api/client'
 import type { Snapshot } from '../api/contracts'
 import { uuidPattern, validRepository } from '../api/validation'
 import { Busy, Empty, ErrorNotice, Heading, Prepare } from '../ui'
+import { hosted } from './auth'
 
 const historyKey = 'repobrain.recent-snapshots'
 type Saved = Pick<Snapshot, 'snapshot_id' | 'repository' | 'commit_sha'>
 function savedSnapshots(): Saved[] {
+  if (hosted) return []
   try {
     const data: unknown = JSON.parse(localStorage.getItem(historyKey) ?? '[]')
     if (!Array.isArray(data)) return []
@@ -21,6 +23,7 @@ function savedSnapshots(): Saved[] {
   } catch { return [] }
 }
 export function remember(snapshot: Snapshot) {
+  if (hosted) return
   try {
     const { snapshot_id, repository, commit_sha } = snapshot
     const list = savedSnapshots().filter((item) => item.snapshot_id !== snapshot_id)

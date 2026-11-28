@@ -17,6 +17,9 @@ Start with the [local workspace setup](#run-the-repobrain-workspace), follow
 the [demo script](docs/demo-script.md), or read the
 [preliminary research report](docs/research-report.md).
 
+The local SaaS authentication profile and its access model are documented in
+[hosted identity and workspace isolation](docs/saas-auth.md).
+
 ![RepoBrain snapshot overview with graph and index readiness](docs/screenshots/overview.png)
 
 [Code search screenshot](docs/screenshots/search.png) ·

@@ -6,6 +6,8 @@ import type { Snapshot } from './api/contracts'
 import { Overview, RepositoryPage, useSnapshot } from './features/repository'
 import { SearchPage, AnswerPage } from './features/retrieval'
 import { Busy, Empty, ErrorNotice, Heading } from './ui'
+import { AuthBoundary, hosted } from './features/auth'
+import { WorkspacePage } from './features/workspace'
 
 const GraphPage = lazy(() => import('./features/graph').then(({ GraphPage }) => ({ default: GraphPage })))
 
@@ -35,7 +37,7 @@ function Shell({ snapshot, id, children }: { snapshot?: Snapshot; id?: string; c
             : <span key={key} className="disabled-nav" aria-disabled="true"><Icon size={17} /><span>{label}</span></span>
         })}
       </nav>
-      <div className="sidebar-foot"><Link to="/repositories"><GitFork size={16} /> Switch snapshot</Link></div>
+      <div className="sidebar-foot"><Link to={hosted ? '/' : '/repositories'}><GitFork size={16} /> {hosted ? 'My workspace' : 'Switch snapshot'}</Link></div>
     </aside>
     <div className="work-area">
       <header className="topbar"><div className="breadcrumb"><GitFork size={16} /><span>{snapshot?.repository ?? 'Workspace'}</span><span className="separator">/</span><strong>{section}</strong></div>
@@ -66,15 +68,17 @@ function SnapshotRoute() {
     {record && !['overview', 'repository'].includes(page) && (record.state !== 'completed'
       ? <Empty>Ingestion must complete before opening this workspace.</Empty>
       : page === 'search' ? <SearchPage key={snapshotId} id={snapshotId} /> : page === 'answers'
-        ? <AnswerPage key={snapshotId} id={snapshotId} /> : <Suspense fallback={<Busy>Loading dependency explorer</Busy>}><GraphPage key={snapshotId} id={snapshotId} /></Suspense>)}
+        ? hosted ? <Empty>AI answers are unavailable in hosted mode.</Empty> : <AnswerPage key={snapshotId} id={snapshotId} />
+        : <Suspense fallback={<Busy>Loading dependency explorer</Busy>}><GraphPage key={snapshotId} id={snapshotId} /></Suspense>)}
   </Shell>
 }
 function Home() {
   return <Shell><div className="page-stack"><Heading eyebrow="Repository intelligence" title="Explore a pinned codebase">Open a snapshot to search source, trace dependencies, and ask evidence-grounded questions.</Heading><section className="panel welcome"><Network size={36} /><h2>Choose a repository</h2><p>Import a public Python repository or reopen an existing snapshot by UUID.</p><Link className="button primary" to="/repositories">Open repository workspace <ArrowRight size={16} /></Link></section></div></Shell>
 }
 export function App() {
-  return <Routes><Route path="/" element={<Home />} /><Route path="/repositories" element={<Shell><RepositoryPage /></Shell>} />
+  const routes = <Routes><Route path="/" element={hosted ? <Shell><WorkspacePage /></Shell> : <Home />} /><Route path="/repositories" element={<Shell><RepositoryPage /></Shell>} />
     <Route path="/snapshots/:snapshotId" element={<SnapshotRoute />} />
     <Route path="/snapshots/:snapshotId/:page" element={<SnapshotRoute />} />
     <Route path="*" element={<Navigate to="/" replace />} /></Routes>
+  return hosted ? <AuthBoundary>{routes}</AuthBoundary> : routes
 }

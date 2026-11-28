@@ -4,6 +4,12 @@ import type {
 } from './contracts'
 
 const base = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
+let accessToken: string | undefined
+let expireSession: () => void = () => undefined
+export function setApiSession(token?: string, onExpired: () => void = () => undefined) {
+  accessToken = token
+  expireSession = onExpired
+}
 const messages: Record<number, string> = {
   404: 'The requested snapshot or source could not be found.',
   409: 'This snapshot needs preparation. Check its graph and index status.',
@@ -37,19 +43,22 @@ function errorFields(body: unknown) {
   }
 }
 
-async function request<T>(path: string, signal?: AbortSignal, payload?: object): Promise<T> {
+async function request<T>(path: string, signal?: AbortSignal, payload?: object, method = payload ? 'POST' : 'GET'): Promise<T> {
   let response: Response
+  const token = accessToken
   try {
     response = await fetch(base + '/api/v1' + path, {
       signal,
-      headers: payload ? { 'Content-Type': 'application/json', Accept: 'application/json' } : { Accept: 'application/json' },
-      method: payload ? 'POST' : 'GET', body: payload ? JSON.stringify(payload) : undefined,
+      headers: { Accept: 'application/json', ...(payload ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+      method, body: payload ? JSON.stringify(payload) : undefined,
       redirect: 'error',
     })
   } catch (error) {
     if (signal?.aborted) throw error
     throw new ApiError(0, 'network_error', null, 'The backend could not be reached. Check that it is running.')
   }
+  if (response.status === 204) return undefined as T
   let body: unknown
   try {
     body = await response.json()
@@ -57,6 +66,7 @@ async function request<T>(path: string, signal?: AbortSignal, payload?: object):
     if (signal?.aborted) throw error
   }
   if (!response.ok) {
+    if (response.status === 401 && token && accessToken === token) expireSession()
     const { code, message, id } = errorFields(body)
     throw new ApiError(response.status, code ?? 'http_error', id ?? response.headers.get('X-Request-ID'),
       (code && Object.hasOwn(actions, code) ? actions[code] : message) || messages[response.status] || 'The request failed.')
@@ -75,6 +85,11 @@ const withQuery = (path: string, entries: [string, string | number | null | unde
 }
 
 export const api = {
+  provision: () => request<Workspace>('/workspace', undefined, undefined, 'POST'),
+  workspace: (signal?: AbortSignal) => request<Workspace>('/workspace', signal),
+  removeRepository: (id: string) => request<void>('/workspace/repositories/' + encodeURIComponent(id), undefined, undefined, 'DELETE'),
+  removeWorkspace: () => request<void>('/workspace', undefined, undefined, 'DELETE'),
+  removeAccount: () => request<void>('/workspace/account', undefined, undefined, 'DELETE'),
   ingest: (repository: string, ref?: string) => request<Snapshot>('/repositories/ingestions', undefined, { repository, ref }),
   snapshot: (id: string, signal?: AbortSignal) => request<Snapshot>('/ingestions/' + encodeURIComponent(id), signal),
   readiness: (id: string, signal?: AbortSignal) => request<Readiness>(scope(id) + '/readiness', signal),
@@ -93,4 +108,9 @@ export const api = {
     request<SearchResponse>(withQuery(scope(id) + '/search/' + mode, [['q', q], ['limit', limit]]), signal),
   answer: (id: string, question: string, mode: Mode, signal?: AbortSignal) =>
     request<Answer>(scope(id) + '/answer', signal, { question, retrieval_mode: mode }),
+}
+
+export interface Workspace {
+  id: string
+  snapshots: { id: string; repository: string; commit_sha: string; snapshot_id: string }[]
 }

@@ -4,7 +4,7 @@ from http import HTTPStatus
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel
 from starlette.exceptions import HTTPException
@@ -27,6 +27,8 @@ from repobrain.search.embedding import EmbeddingProvider, LocalOnnxProvider
 from repobrain.search.readiness import router as readiness_router
 from repobrain.search.routes import router as search_router
 from repobrain.settings import Settings
+from repobrain.tenancy import Tokens, protect
+from repobrain.tenancy import router as workspace_router
 
 
 class HealthResponse(BaseModel):
@@ -37,6 +39,7 @@ def create_app(
     settings: Settings | None = None,
     *,
     github_transport: httpx.AsyncBaseTransport | None = None,
+    auth_transport: httpx.AsyncBaseTransport | None = None,
     embedding_provider: EmbeddingProvider | None = None,
     generation_provider: GenerationProvider | None = None,
 ) -> FastAPI:
@@ -71,7 +74,13 @@ def create_app(
             await engine.dispose()
             app.state.database_sessions = None
 
+    hosted = settings.deployment_mode == "hosted"
     app = FastAPI(title="RepoBrain", lifespan=lifespan)
+    app.state.tokens = (
+        Tokens(settings.auth_issuer, settings.auth_audience, auth_transport)
+        if hosted and settings.auth_issuer is not None
+        else None
+    )
     if generation_provider is None and settings.generation_endpoint is not None:
         generation_provider = OpenAICompatibleProvider(settings)
     app.state.generation = Generation(
@@ -80,16 +89,21 @@ def create_app(
         settings.generation_concurrency,
     )
     app.state.embedding_provider = (
-        embedding_provider
-        if embedding_provider is not None
-        else LocalOnnxProvider(settings.vector_model_dir)
+        None
+        if hosted
+        else embedding_provider or LocalOnnxProvider(settings.vector_model_dir)
     )
     app.add_middleware(RequestMiddleware)
-    app.include_router(ingestion_router)
-    app.include_router(graph_router)
-    app.include_router(search_router)
-    app.include_router(readiness_router)
-    app.include_router(answers_router)
+    for router in (
+        ingestion_router,
+        graph_router,
+        search_router,
+        readiness_router,
+        answers_router,
+    ):
+        app.include_router(router, dependencies=[Depends(protect)] if hosted else None)
+    if hosted:
+        app.include_router(workspace_router)
 
     @app.exception_handler(ExplorationError)
     async def handle_exploration_error(

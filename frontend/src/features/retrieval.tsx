@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { hosted } from './auth'
 import type { FormEvent } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { CircleStop, FileCode2, Search, Sparkles } from 'lucide-react'
@@ -36,7 +37,7 @@ function useSubmission<T>(id: string, name: string, execute: (input: Submission,
 
 export function SearchPage({ id }: { id: string }) {
   const [text, setText] = useState('')
-  const [mode, setMode] = useState<Mode>('hybrid')
+  const [mode, setMode] = useState<Mode>(hosted ? 'lexical' : 'hybrid')
   const [limit, setLimit] = useState('10')
   const request = useSubmission<SearchResponse>(id, 'search', (input, signal) => api.search(id, input.mode, input.text, input.limit, signal))
   const results = request.result.data
@@ -48,7 +49,9 @@ export function SearchPage({ id }: { id: string }) {
       if (Number(limit) >= 1 && Number(limit) <= 30) request.submit(text, mode, Number(limit))
     }}>
       <label className="field">Search query<input placeholder="Search a symbol, concept, or code token" required maxLength={mode === 'vector' ? 512 : 256} value={text} onChange={(event) => setText(event.target.value)} /></label>
-      <div className="form-row"><ModeSelect mode={mode} onChange={setMode} />
+      <div className="form-row">{hosted
+        ? <p>Lexical search is available. Vector, hybrid, graph-enhanced retrieval and AI answers are disabled in hosted mode.</p>
+        : <ModeSelect mode={mode} onChange={setMode} />}
         <label className="field limit">Result limit<input type="number" min={1} max={30} required value={limit} onChange={(e) => setLimit(e.target.value)} /></label>
         <button className="primary" disabled={request.running || !text.trim()}><Search size={16} /> Search</button>
         {request.running && <button type="button" onClick={request.cancel}><CircleStop size={16} /> Cancel search</button>}

@@ -14,6 +14,8 @@ from repobrain.database.models import (
     Repository,
     RepositorySnapshot,
     SourceFile,
+    Workspace,
+    WorkspaceSnapshot,
 )
 from repobrain.ingestion.github import Commit, GitHub, IngestionError, PythonFile
 from repobrain.settings import Settings
@@ -102,9 +104,19 @@ class IngestionService:
                 else None,
             )
 
-    async def prepare(self, commit: Commit) -> tuple[UUID, datetime | None]:
+    async def prepare(
+        self, commit: Commit, workspace: tuple[UUID, int] | None = None
+    ) -> tuple[UUID, datetime | None]:
         owner, name = commit.repository.split("/")
         async with self.sessions.begin() as session:
+            if workspace is not None:
+                owner_workspace = await session.get(
+                    Workspace, workspace[0], with_for_update=True
+                )
+                if owner_workspace is None or owner_workspace.revision != workspace[1]:
+                    raise IngestionError(
+                        409, "workspace_changed", "Retry from your workspace"
+                    )
             await session.execute(
                 insert(Repository)
                 .values(owner=owner, name=name)
@@ -136,6 +148,12 @@ class IngestionService:
                 ).scalar_one()
             )
             await self.expire(session, snapshot_id)
+            if workspace is not None:
+                await session.execute(
+                    insert(WorkspaceSnapshot)
+                    .values(workspace_id=workspace[0], snapshot_id=snapshot_id)
+                    .on_conflict_do_nothing()
+                )
             snapshot = (
                 await session.execute(
                     select(RepositorySnapshot)
@@ -151,7 +169,11 @@ class IngestionService:
             return snapshot_id, snapshot.updated_at if new is not None else None
 
     async def submit(
-        self, repository: str, ref: str | None, request_id: str
+        self,
+        repository: str,
+        ref: str | None,
+        request_id: str,
+        workspace: tuple[UUID, int] | None = None,
     ) -> SnapshotStatus:
         if self.active >= self.settings.ingestion_concurrency:
             raise IngestionError(
@@ -163,7 +185,7 @@ class IngestionService:
             github = GitHub(self.client, self.settings)
             async with asyncio.timeout(self.settings.ingestion_timeout):
                 commit = await github.resolve(repository, ref)
-                snapshot_id, pending = await self.prepare(commit)
+                snapshot_id, pending = await self.prepare(commit, workspace)
                 if pending is not None:
                     task = asyncio.create_task(
                         self.run(github, commit, snapshot_id, pending, request_id)

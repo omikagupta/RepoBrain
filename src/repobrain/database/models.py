@@ -32,6 +32,34 @@ class IngestionState(StrEnum):
     FAILED = "failed"
 
 
+class SaaSUser(Base):
+    __tablename__ = "saas_users"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Workspace(Base):
+    __tablename__ = "workspaces"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("saas_users.id"), unique=True)
+    revision: Mapped[int] = mapped_column(default=0)
+
+
+class WorkspaceSnapshot(Base):
+    __tablename__ = "workspace_snapshots"
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True
+    )
+    snapshot_id: Mapped[UUID] = mapped_column(
+        ForeignKey("repository_snapshots.id", ondelete="CASCADE"),
+        primary_key=True,
+        index=True,
+    )
+
+
 class Repository(Base):
     __tablename__ = "repositories"
     __table_args__ = (
