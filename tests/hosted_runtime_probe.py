@@ -12,6 +12,7 @@ from uuid import uuid4
 import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric import ec
+from sqlalchemy import text
 
 START = monotonic()
 
@@ -47,7 +48,8 @@ async def main() -> None:
             }
         )
 
-    def github(request: httpx.Request) -> httpx.Response:
+    async def github(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(int(os.getenv("REPOBRAIN_PROBE_LATENCY_MS", "0")) / 1000)
         path = request.url.path
         if "/commits/" in path:
             return httpx.Response(
@@ -118,6 +120,22 @@ async def main() -> None:
         search = await client.get(
             f"/api/v1/snapshots/{snapshot}/search/lexical?q=repository"
         )
+        burst_start = monotonic()
+        burst = await asyncio.gather(
+            *(
+                client.get(f"/api/v1/snapshots/{snapshot}/{suffix}")
+                for suffix in ("graph", "search/lexical?q=repository") * 3
+            )
+        )
+        burst_wall = monotonic() - burst_start
+        async with app.state.database_sessions() as session:
+            connections = await session.scalar(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND usename = current_user AND backend_type = 'client backend'"
+                )
+            )
         cgroup = Path("/sys/fs/cgroup")
         assert "onnxruntime" not in sys.modules
         print(
@@ -133,6 +151,10 @@ async def main() -> None:
                     "search_status": search.status_code,
                     "nodes": graph.json().get("node_count"),
                     "edges": graph.json().get("edge_count"),
+                    "burst_statuses": [item.status_code for item in burst],
+                    "burst_seconds": round(burst_wall, 3),
+                    "pool_size_configured": settings.db_pool_size,
+                    "observed_database_connections": connections,
                     "cgroup_peak_bytes": int((cgroup / "memory.peak").read_text()),
                     "cpu": dict(
                         row.split()

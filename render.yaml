@@ -1,0 +1,57 @@
+# Definitions only. The operator reviews billing and performs migrations first.
+services:
+  - type: web
+    name: repobrain-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerCommand: python -m repobrain.hosted
+    healthCheckPath: /readyz
+    autoDeployTrigger: "off"
+    envVars:
+      - key: REPOBRAIN_DEPLOYMENT_MODE
+        value: hosted
+      - key: REPOBRAIN_REQUIRE_DEPLOYMENT_READINESS
+        value: "true"
+      - key: REPOBRAIN_DATABASE_URL
+        sync: false
+      - key: REPOBRAIN_DATABASE_TLS_CA
+        value: /etc/secrets/supabase-ca.pem
+      - key: REPOBRAIN_AUTH_ISSUER
+        sync: false
+      - key: REPOBRAIN_HOSTED_FRONTEND_ORIGIN
+        sync: false
+      - key: REPOBRAIN_HOSTED_PREPARE_INDEXES
+        value: "false"
+  - type: web
+    name: repobrain-ui
+    runtime: static
+    rootDir: frontend
+    autoDeployTrigger: "off"
+    buildCommand: npm ci && npm run build:hosted
+    staticPublishPath: ./dist
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      - key: VITE_DEPLOYMENT_MODE
+        value: hosted
+      - key: VITE_API_BASE_URL
+        sync: false
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: no-referrer
+      - path: /*
+        name: X-Frame-Options
+        value: DENY

@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     deployment_mode: Literal["local", "hosted"] = "local"
     auth_issuer: str | None = Field(default=None, max_length=512)
     auth_audience: str = Field(default="authenticated", min_length=1, max_length=128)
+    hosted_frontend_origin: str | None = Field(default=None, max_length=512)
+    database_tls_ca: Path | None = None
+    require_deployment_readiness: bool = False
     hosted_repository_limit: int = Field(default=3, ge=1, le=10)
     hosted_file_limit: int = Field(default=100, ge=1, le=100)
     hosted_global_ingestions: int = Field(default=1, ge=1, le=2)
@@ -121,7 +124,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_deployment(self) -> Self:
         if self.deployment_mode == "local":
-            if self.auth_issuer is not None:
+            if self.auth_issuer is not None or self.require_deployment_readiness:
                 raise ValueError("set hosted mode to enable authentication")
             return self
         if self.database_url is None or self.auth_issuer is None:
@@ -149,6 +152,31 @@ class Settings(BaseSettings):
             )
         ):
             raise ValueError("invalid trusted auth issuer")
+        if self.hosted_frontend_origin is not None:
+            origin = urlsplit(self.hosted_frontend_origin)
+            if (
+                origin.scheme != "https"
+                or not origin.hostname
+                or origin.username is not None
+                or origin.password is not None
+                or origin.path
+                or origin.query
+                or origin.fragment
+                or self.hosted_frontend_origin != f"https://{origin.netloc}"
+                or origin.port == 0
+            ):
+                raise ValueError("hosted frontend origin must be an exact HTTPS origin")
+        if self.require_deployment_readiness and (
+            self.hosted_frontend_origin is None
+            or self.database_tls_ca is None
+            or url.scheme != "https"
+        ):
+            raise ValueError("deployment requires HTTPS origins and a database CA")
+        if (
+            self.database_tls_ca is not None
+            and make_url(self.database_url.get_secret_value()).query
+        ):
+            raise ValueError("database URL options are disabled with verified TLS")
         return self
 
     @property

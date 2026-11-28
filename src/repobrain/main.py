@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -6,8 +7,11 @@ from typing import Literal
 import httpx
 from fastapi import Depends, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.exc import TimeoutError as PoolTimeout
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
@@ -38,6 +42,28 @@ class HealthResponse(BaseModel):
     status: Literal["healthy"] = "healthy"
 
 
+async def verify_database(sessions: async_sessionmaker[AsyncSession]) -> None:
+    try:
+        async with asyncio.timeout(8), sessions() as session:
+            versions = (
+                await session.scalars(text("SELECT version_num FROM alembic_version"))
+            ).all()
+            vector = await session.scalar(
+                text(
+                    "SELECT EXISTS "
+                    "(SELECT 1 FROM pg_extension WHERE extname = 'vector') "
+                    "AND to_regtype('vector') IS NOT NULL"
+                )
+            )
+            if versions == ["0007_hosted_cache"] and vector:
+                return
+    except Exception:
+        pass
+    raise RuntimeError(
+        "Deployment database is unavailable or has an incompatible schema"
+    )
+
+
 def create_app(
     settings: Settings | None = None,
     *,
@@ -55,9 +81,16 @@ def create_app(
             app.state.database_sessions = None
             yield
             return
-        engine = create_database_engine(settings)
+        try:
+            engine = create_database_engine(settings)
+        except OSError:
+            raise RuntimeError(
+                "Deployment database TLS configuration is invalid"
+            ) from None
         app.state.database_sessions = create_session_factory(engine)
         try:
+            if settings.require_deployment_readiness:
+                await verify_database(app.state.database_sessions)
             async with httpx.AsyncClient(
                 trust_env=False,
                 transport=github_transport,
@@ -99,6 +132,15 @@ def create_app(
     )
     if hosted:
         app.add_middleware(HostedBounds, settings=settings)
+        if settings.hosted_frontend_origin is not None:
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=[settings.hosted_frontend_origin],
+                allow_methods=["GET", "POST", "DELETE"],
+                allow_headers=["Authorization", "Content-Type"],
+                expose_headers=["Retry-After", "X-Request-ID"],
+                max_age=600,
+            )
     app.add_middleware(RequestMiddleware)
     for router in (
         ingestion_router,
@@ -167,5 +209,17 @@ def create_app(
     @app.get("/healthz")
     async def health() -> HealthResponse:
         return HealthResponse()
+
+    if hosted:
+
+        @app.get("/readyz", include_in_schema=False)
+        async def readiness(request: Request) -> dict[str, str]:
+            try:
+                await verify_database(request.app.state.database_sessions)
+            except RuntimeError:
+                raise ExplorationError(
+                    503, "database_unavailable", "Service is not ready"
+                ) from None
+            return {"status": "ready"}
 
     return app
