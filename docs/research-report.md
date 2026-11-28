@@ -113,3 +113,6 @@ records all 36 cases, including failures. Keep it separate during review.
 Citations on accepted answers passed structural validation. Semantic support,
 correctness, and completeness still require independent review. This small
 development run does not establish a quality difference between methods.
+
+The [release review](release-review.md) records claim-level engineering
+observations and the limits of retrospective failure classification.
