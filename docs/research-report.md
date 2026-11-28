@@ -28,6 +28,42 @@ advantage over hybrid. Whole-question lexical matching returned no
 judged evidence in this workload. That result is specific to the existing
 lexical query policy and these natural-language questions.
 
+## Repository breakdown
+
+| Repository | Answerable questions | Lexical | Vector | Hybrid RRF | Graph-enhanced |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Tomli | 15 | 0.00% | 87.78% | 87.78% | 80.00% |
+| Humanize | 15 | 0.00% | 75.56% | 75.56% | 75.56% |
+| uiri/toml | 14 | 0.00% | 75.00% | 75.00% | 78.57% |
+
+Values are mean Evidence Recall@10. The same measured results show that
+graph expansion helped locate ordinary time-token grammar and dispatch
+(`b1-11`, +⅓ recall), localized number words (`b2-11`, +½), and public
+serialization and nested traversal (`b3-05`, +½). It hurt signed timezone
+offset evidence (`b1-09`, −½) and localization activation evidence
+(`b2-07`, −½). These are ranked-evidence regressions, and all corresponding
+requests succeeded.
+
+## Development-only lexical diagnosis
+
+The unchanged lexical service returned zero hits for all nine development
+questions. Source-derived symbol probes for those questions returned
+10, 3, 2, 3, 9, 10, 10, 10 and 3 hits respectively, capped at ten.
+The SQL builds a PostgreSQL plain-text query that conjoins its normalized
+terms. A chunk must match every term. The contrast is consistent with
+prose introducing required terms that occur outside the evidence or do
+not occur in the source. These probes demonstrate index behavior and
+were not used to change the frozen protocol.
+
+## Run integrity
+
+Run `python evaluation/audit_run.py` from the checkout to verify the
+frozen hashes, run binding, manifest and raw export counts and to
+regenerate the per-repository table. The raw export contains 800 unique
+question, mode and repetition keys, including 200 warm-ups and 600
+measured attempts. The recorded implementation is
+`e36d670231f1d491bec4aa6783873dfb3b46d7b8`.
+
 Two repositories implement TOML, and questions within each repository
 are dependent. The bootstrap resamples question pairs, so its interval
 does not capture generalization to new repositories. Unjudged chunks
@@ -37,3 +73,12 @@ The [protocol](evaluation.md), [review export](../evaluation/benchmark-v1-review
 [freeze manifest](../evaluation/datasets/benchmark-v1-freeze.json), and
 [machine-readable results](../evaluation/results/run-01-summary.json)
 describe the inputs and contain per-question observations.
+
+## Answer workflow verification
+
+The [development export](../evaluation/results/development-answers/review.jsonl)
+contains 36 blinded cases from the production answer service with a keyless
+loopback fixture. There were 27 fixture responses with structurally valid
+citations, nine lexical abstentions, and zero errors. The fixture did not
+report token usage. It verifies integration and export behavior. Semantic
+quality evaluation with a local model and human scoring remains pending.
