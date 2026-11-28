@@ -35,3 +35,40 @@ jobs:
         run: |
           docker compose -f compose.test.yaml down
           docker compose -p repobrain-graph-runtime -f compose.test.yaml down
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - working-directory: frontend
+        run: |
+          npm ci
+          npm run lint
+          npm run typecheck
+          npm run test
+          npm run build
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Start disposable end-to-end stack
+        run: docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml up --build -d --wait frontend
+      - name: Test production frontend and real backend
+        working-directory: frontend
+        env:
+          REPOBRAIN_E2E_BASE: http://127.0.0.1:4180
+          REPOBRAIN_SCREENSHOTS: test-results/screenshots
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-browser-results
+          path: frontend/test-results
+      - name: Stop disposable end-to-end stack
+        if: always()
+        run: docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml down

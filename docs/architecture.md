@@ -379,10 +379,44 @@ canonical citations, `a.py#L1-L2` and `z_dependency.py#L1-L2`, connected by a
 stored import edge. It demonstrates the data flow and citation checks.
 Real-model accuracy remains unevaluated.
 
+## Milestone 6A
+
+The React and TypeScript workspace uses React Router, TanStack Query,
+Tailwind CSS and Cytoscape. Routes under `/snapshots/:snapshotId` share a
+snapshot header and keep server queries scoped to that immutable ID.
+The repository workspace stores a bounded list of recently opened snapshot
+identities locally and reopens arbitrary known UUIDs. Ingestion polling is
+limited to active jobs and a five-minute window.
+
+Overview combines ingestion status, graph summary, and the new read-only
+`GET /api/v1/snapshots/{snapshot_id}/readiness` endpoint. Readiness reports
+persisted analysis and index markers without starting a build or inference.
+Graph analysis and index construction remain CLI operations.
+
+Search calls the four existing ranking APIs. Answers use the structured
+generation endpoint with a single explicit submission, no automatic retry,
+and browser-side cancellation. The evidence inspector uses plain-text React
+rendering and renders external links only when they exactly match the expected
+GitHub commit, file and line range. It copies exact chunk text. The graph
+source-window API supplies display lines, so copying that view uses LF.
+
+The dependency explorer browses paginated nodes and loads bounded
+neighborhoods. Cytoscape displays only returned nodes and directed edges.
+Text controls provide the same selected-node and relationship information.
+Provenance links open the seed neighborhood and request at most two
+additional bounded neighborhoods. A capped graph can omit a provenance edge.
+
+A non-root Nginx container serves hashed assets and refreshable SPA routes.
+The container proxies API traffic to FastAPI on the Compose network.
+Vite provides the equivalent proxy for development. The optional browser
+smoke service seeds disposable PostgreSQL and injects deterministic
+providers. The production images expose no fixture switches. This
+single-developer workflow requires additional access controls and rate limits
+before any public deployment with paid generation.
+
 ## Planned architecture
 
-1. Expose dependency relationships through a React explorer.
-2. Evaluate retrieval and grounded answers on the same pinned repositories
+1. Evaluate retrieval and grounded answers on the same pinned repositories
    and labeled questions.
 
 Local development and routine CI work without an external AI provider.

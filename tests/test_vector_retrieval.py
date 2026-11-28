@@ -116,12 +116,15 @@ async def test_provider_is_lazy_and_missing_weights_are_safe(tmp_path: Path) -> 
 async def seed(
     sessions: async_sessionmaker[AsyncSession],
     corpus: dict[str, str],
+    *,
+    snapshot_id: UUID | None = None,
 ) -> UUID:
     async with sessions.begin() as session:
         repository = Repository(owner="sample", name=f"vector-{uuid4().hex}")
         session.add(repository)
         await session.flush()
         snapshot = RepositorySnapshot(
+            id=snapshot_id or uuid4(),
             repository_id=repository.id,
             commit_sha=SHA,
             ingestion_state=IngestionState.COMPLETED,
