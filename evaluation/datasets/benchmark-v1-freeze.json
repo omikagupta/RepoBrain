@@ -1,0 +1,11 @@
+{
+  "annotation_status": "machine-assisted",
+  "implementation_commit": "e36d670231f1d491bec4aa6783873dfb3b46d7b8",
+  "sha256": {
+    "benchmark": "af42b171c2e8fdb37d00a5455dddd82c3ab136290088c9264f3470feffce2625",
+    "configuration": "cc004334d3f5b527b04b2cf36f8cf8b08c975e68c83d3c2de0114e141cf8356d",
+    "development": "61f5b3cd6a876a9383a0541db25188054513dfc0670c5bb2a00f5268b11e1e9d",
+    "repositories": "423445ede1a086aafaf2515a927319f054e8b87b3df2cdbd985a73467af1418a"
+  },
+  "version": "benchmark-v1"
+}

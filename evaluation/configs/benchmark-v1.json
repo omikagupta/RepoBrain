@@ -1,0 +1,18 @@
+{
+  "seed": 62026,
+  "timeout_seconds": 90,
+  "result_limit": 30,
+  "cutoffs": [5, 10],
+  "warmup_passes": 1,
+  "measured_repetitions": 3,
+  "overlap_threshold": 0.5,
+  "bootstrap_resamples": 10000,
+  "chunking_version": "python-lines-v1",
+  "vector_version": "cosine-exact-v1",
+  "fusion": "rrf-v1",
+  "expansion": "graph-outgoing-v1",
+  "graph_ranking": "rrf-plus-best-hop-v1",
+  "embedding_model": "jinaai/jina-embeddings-v2-base-code",
+  "embedding_revision": "516f4baf13dec4ddddda8631e019b5737c8bc250",
+  "embedding_policy": "onnx-int8-mean-l2-512-v1"
+}

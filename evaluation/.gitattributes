@@ -1,0 +1,4 @@
+# Preserve exact frozen input bytes across platforms.
+/datasets/*.jsonl -text
+/datasets/*.json -text
+/configs/*.json -text

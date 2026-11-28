@@ -58,6 +58,24 @@ jobs:
           npm run test:e2e
       - name: Start disposable end-to-end stack
         run: docker compose -p repobrain-browser-smoke -f compose.test.yaml -f compose.frontend-test.yaml up --build -d --wait frontend
+      - name: Verify private Compose boundaries
+        env:
+          POSTGRES_PASSWORD: ci-fixture-password
+          REPOBRAIN_GENERATION_ENDPOINT: https://example.invalid
+          REPOBRAIN_GENERATION_MODEL: ci-fixture
+          REPOBRAIN_GENERATION_API_KEY: ci-fixture-key
+        run: |
+          docker compose -f compose.yaml -f compose.frontend.yaml -f compose.private.yaml config --format json |
+            jq -e '
+              .services as $services |
+              (($services.backend.ports // []) | length == 0) and
+              (($services.db.ports // []) | length == 0) and
+              ($services.frontend.ports | length == 1 and .[0].host_ip == "127.0.0.1") and
+              ($services.backend.environment |
+                has("REPOBRAIN_GENERATION_ENDPOINT") == false and
+                has("REPOBRAIN_GENERATION_MODEL") == false and
+                has("REPOBRAIN_GENERATION_API_KEY") == false)
+            '
       - name: Test production frontend and real backend
         working-directory: frontend
         env:

@@ -1,0 +1,25 @@
+# Use with compose.yaml and compose.frontend.yaml on a trusted private host.
+services:
+  backend:
+    ports: !reset []
+    environment:
+      REPOBRAIN_LOCAL_DB_PASSWORD: ${POSTGRES_PASSWORD:?Set a unique database password}
+      REPOBRAIN_GENERATION_ENDPOINT: !reset null
+      REPOBRAIN_GENERATION_MODEL: !reset null
+      REPOBRAIN_GENERATION_API_KEY: !reset null
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 128
+    security_opt:
+      - no-new-privileges:true
+  frontend:
+    cpus: 1
+    mem_limit: 256m
+    pids_limit: 128
+  db:
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 128

@@ -1,0 +1,93 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900" role="img" aria-labelledby="title">
+<title id="title">Preliminary benchmark-v1 results</title>
+<rect width="900" height="900" fill="#f8fafc"/>
+<text x="32" y="40" font-family="system-ui,sans-serif" font-size="26" fill="#0f172a">RepoBrain retrieval benchmark v1</text>
+<text x="32" y="68" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">Preliminary · machine-assisted labels · 600 measured attempts</text>
+<text x="32" y="105" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">Cross-file Evidence Recall@10</text>
+<text x="32" y="145" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="155" y="132" width="0.000" height="15" rx="3" fill="#64748b"/>
+<text x="356" y="145" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">0.0%</text>
+<text x="32" y="184" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="155" y="171" width="121.875" height="15" rx="3" fill="#0284c7"/>
+<text x="356" y="184" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">62.5%</text>
+<text x="32" y="223" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="155" y="210" width="121.875" height="15" rx="3" fill="#4338ca"/>
+<text x="356" y="223" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">62.5%</text>
+<text x="32" y="262" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="155" y="249" width="124.583" height="15" rx="3" fill="#047857"/>
+<text x="356" y="262" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">63.9%</text>
+<text x="470" y="105" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">Cross-file Essential Evidence Coverage@10</text>
+<text x="470" y="145" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="593" y="132" width="0.000" height="15" rx="3" fill="#64748b"/>
+<text x="794" y="145" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">0.0%</text>
+<text x="470" y="184" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="593" y="171" width="121.875" height="15" rx="3" fill="#0284c7"/>
+<text x="794" y="184" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">62.5%</text>
+<text x="470" y="223" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="593" y="210" width="121.875" height="15" rx="3" fill="#4338ca"/>
+<text x="794" y="223" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">62.5%</text>
+<text x="470" y="262" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="593" y="249" width="124.583" height="15" rx="3" fill="#047857"/>
+<text x="794" y="262" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">63.9%</text>
+<text x="32" y="330" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">Cross-file latency · median and P95</text>
+<text x="32" y="370" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="155" y="357" width="16.927" height="15" rx="3" fill="#64748b"/>
+<line x1="177.09920900168072" x2="177.09920900168072" y1="355" y2="374" stroke="#0f172a" stroke-width="2"/>
+<text x="356" y="370" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">11.3 / 14.7</text>
+<text x="32" y="409" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="155" y="396" width="74.448" height="15" rx="3" fill="#0284c7"/>
+<line x1="256.64395100036927" x2="256.64395100036927" y1="394" y2="413" stroke="#0f172a" stroke-width="2"/>
+<text x="356" y="409" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">49.6 / 67.8</text>
+<text x="32" y="448" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="155" y="435" width="86.050" height="15" rx="3" fill="#4338ca"/>
+<line x1="261.50094950142375" x2="261.50094950142375" y1="433" y2="452" stroke="#0f172a" stroke-width="2"/>
+<text x="356" y="448" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">57.4 / 71.0</text>
+<text x="32" y="487" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="155" y="474" width="124.434" height="15" rx="3" fill="#047857"/>
+<line x1="320.16437900463643" x2="320.16437900463643" y1="472" y2="491" stroke="#0f172a" stroke-width="2"/>
+<text x="356" y="487" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">83.0 / 110.1</text>
+<text x="470" y="330" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">Tomli Evidence Recall@10</text>
+<text x="470" y="370" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="593" y="357" width="0.000" height="15" rx="3" fill="#64748b"/>
+<text x="794" y="370" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">0.0%</text>
+<text x="470" y="409" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="593" y="396" width="171.167" height="15" rx="3" fill="#0284c7"/>
+<text x="794" y="409" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">87.8%</text>
+<text x="470" y="448" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="593" y="435" width="171.167" height="15" rx="3" fill="#4338ca"/>
+<text x="794" y="448" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">87.8%</text>
+<text x="470" y="487" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="593" y="474" width="156.000" height="15" rx="3" fill="#047857"/>
+<text x="794" y="487" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">80.0%</text>
+<text x="32" y="555" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">Humanize Evidence Recall@10</text>
+<text x="32" y="595" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="155" y="582" width="0.000" height="15" rx="3" fill="#64748b"/>
+<text x="356" y="595" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">0.0%</text>
+<text x="32" y="634" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="155" y="621" width="147.333" height="15" rx="3" fill="#0284c7"/>
+<text x="356" y="634" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">75.6%</text>
+<text x="32" y="673" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="155" y="660" width="147.333" height="15" rx="3" fill="#4338ca"/>
+<text x="356" y="673" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">75.6%</text>
+<text x="32" y="712" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="155" y="699" width="147.333" height="15" rx="3" fill="#047857"/>
+<text x="356" y="712" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">75.6%</text>
+<text x="470" y="555" font-family="system-ui,sans-serif" font-size="17" fill="#0f172a">uiri/toml Evidence Recall@10</text>
+<text x="470" y="595" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">lexical</text>
+<rect x="593" y="582" width="0.000" height="15" rx="3" fill="#64748b"/>
+<text x="794" y="595" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">0.0%</text>
+<text x="470" y="634" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">vector</text>
+<rect x="593" y="621" width="146.250" height="15" rx="3" fill="#0284c7"/>
+<text x="794" y="634" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">75.0%</text>
+<text x="470" y="673" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">hybrid</text>
+<rect x="593" y="660" width="146.250" height="15" rx="3" fill="#4338ca"/>
+<text x="794" y="673" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">75.0%</text>
+<text x="470" y="712" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">graph-enhanced</text>
+<rect x="593" y="699" width="153.214" height="15" rx="3" fill="#047857"/>
+<text x="794" y="712" font-family="system-ui,sans-serif" font-size="13" fill="#0f172a">78.6%</text>
+<text x="32" y="800" font-family="system-ui,sans-serif" font-size="18" fill="#0f172a">Graph-enhanced minus hybrid · cross-file Recall@10</text>
+<text x="32" y="824" font-family="system-ui,sans-serif" font-size="15" fill="#0f172a">+1.39% · 95% paired interval -6.94% to +9.72% · inconclusive</text>
+<line x1="450" x2="450" y1="833" y2="873" stroke="#64748b"/>
+<line x1="283.3333333333333" x2="683.3333333333334" y1="853" y2="853" stroke="#4338ca" stroke-width="4"/>
+<circle cx="483.3333333333333" cy="853" r="7" fill="#4338ca"/>
+</svg>

@@ -1,6 +1,31 @@
 # RepoBrain
 
-RepoBrain is a research-oriented AI code intelligence platform.
+RepoBrain is a research-oriented code intelligence workspace for exploring
+public Python repositories at immutable Git commits. Search source, follow
+dependency edges, and inspect the exact lines behind generated citations.
+
+```mermaid
+flowchart LR
+    GitHub --> Ingestion
+    Ingestion --> PostgreSQL
+    PostgreSQL --> Retrieval
+    Retrieval --> FastAPI
+    FastAPI --> React
+```
+
+Start with the [local workspace setup](#run-the-repobrain-workspace), follow
+the [demo script](docs/demo-script.md), or read the
+[preliminary research report](docs/research-report.md).
+
+![RepoBrain snapshot overview with graph and index readiness](docs/screenshots/overview.png)
+
+[Code search screenshot](docs/screenshots/search.png) ·
+[Mobile search screenshot](docs/screenshots/mobile-search.png) ·
+[Dependency explorer screenshot](docs/screenshots/graph.png) ·
+[Grounded answer screenshot](docs/screenshots/answer.png) (deterministic demo)
+
+These screenshots come from the browser smoke test running the production
+frontend, FastAPI and disposable PostgreSQL with a prepared snapshot.
 
 RepoBrain provides a Python 3.12 FastAPI backend and PostgreSQL persistence
 for repositories, commit snapshots, and source files. The source is under
@@ -580,3 +605,14 @@ answer demonstration. CI publishes screenshots in its browser results
 artifact. This is a single-developer workspace. Keep it loopback-only.
 Public paid generation requires authentication, isolation and rate limits.
 Cancelling in the browser may leave upstream work and billing running.
+## Preliminary research results
+
+The frozen 50-question benchmark recorded 600 successful measured retrieval
+attempts across four production methods. On the 24 cross-file questions,
+graph-enhanced Recall@10 was 63.89% versus 62.50% for hybrid RRF. The paired
+95% bootstrap interval for the difference was −6.94 to +9.72 percentage points.
+The annotations are machine-assisted and await independent review.
+
+See the [research report](docs/research-report.md) and
+[evaluation protocol](docs/evaluation.md) for limitations and reproduction.
+
