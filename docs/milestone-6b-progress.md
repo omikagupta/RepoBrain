@@ -125,3 +125,12 @@ and built 199 vectors with the pinned CPU model. It produced 115 graph
 nodes, 118 edges, and 45 diagnostics. The package includes a bidirectional
 serialization API and separate decoder, encoder, timezone, and ordered
 mapping modules. Selecting two TOML libraries limits architectural diversity.
+
+## Benchmark v1 run
+
+Validated 50 benchmark and nine development questions against the three
+stored pinned snapshots, exported the annotations for independent review,
+and froze the inputs before measuring retrieval. The run completed 600
+measured attempts with no recorded failures. See the
+[preliminary research report](research-report.md). Independent review,
+answer quality measurements, and the final release remain pending.
