@@ -93,9 +93,17 @@ def validate(
         raise ValueError("Unexpected benchmark category distribution")
     if Counter(q.repository for q in development) != dict.fromkeys(repositories, 3):
         raise ValueError("Expected three development questions per repository")
+    validate_annotations([*development, *benchmark], repositories, sources)
+
+
+def validate_annotations(
+    questions: Sequence[Question],
+    repositories: Mapping[str, str],
+    sources: Mapping[SourceKey, int],
+) -> None:
     ids: set[str] = set()
     texts: set[str] = set()
-    for item in [*development, *benchmark]:
+    for item in questions:
         normalized = " ".join(item.question.casefold().split())
         if item.question_id in ids or normalized in texts:
             raise ValueError("Duplicate question ID or text")

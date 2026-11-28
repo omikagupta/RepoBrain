@@ -30,6 +30,7 @@ from repobrain.evaluation.dataset import (
     Question,
     read_questions,
     validate,
+    validate_annotations,
     verify_freeze,
     write_freeze,
 )
@@ -125,7 +126,11 @@ async def execute(args: argparse.Namespace) -> None:
             await engine.dispose()
         return
     configuration = Protocol.model_validate_json(files["configuration"].read_bytes())
-    benchmark = read_questions(files["benchmark"])
+    benchmark = (
+        []
+        if args.action == "review-development"
+        else read_questions(files["benchmark"])
+    )
     development = read_questions(files["development"])
     snapshots: dict[tuple[str, str], UUID] = {}
     try:
@@ -155,6 +160,10 @@ async def execute(args: argparse.Namespace) -> None:
                 if repositories.get(repo) == sha:
                     snapshots[(repo, sha)] = snapshot
                     sources[(repo, sha, path)] = lines
+        if args.action == "review-development":
+            validate_annotations(development, repositories, sources)
+            write_review(args.output, development)
+            return
         validate(development, benchmark, repositories, sources)
         if args.action in {"freeze", "retrieve", "score", "answers"}:
             async with sessions() as session:
@@ -294,6 +303,9 @@ def main() -> None:
     commands.add_parser("freeze").add_argument("--implementation", required=True)
     commands.add_parser("retrieve").add_argument("--output", type=Path, required=True)
     commands.add_parser("review").add_argument("--output", type=Path, required=True)
+    commands.add_parser("review-development").add_argument(
+        "--output", type=Path, required=True
+    )
     commands.add_parser("answers").add_argument("--output", type=Path, required=True)
     scoring = commands.add_parser("score")
     scoring.add_argument("--run", type=Path, required=True)
