@@ -12,6 +12,21 @@ effective configuration, applies resource limits, and leaves only the
 loopback frontend port available. Initialize migrations before serving
 requests. Use an existing authenticated HTTPS gateway for remote access.
 
+With the password already set in the operator environment, start from the
+repository root in PowerShell.
+
+```powershell
+$private = @('-f', 'compose.yaml', '-f', 'compose.frontend.yaml', '-f', 'compose.private.yaml')
+docker compose @private up -d --wait db
+docker compose @private run --rm --no-deps backend alembic upgrade head
+docker compose @private up -d --wait --build frontend
+Invoke-WebRequest http://127.0.0.1:8080/frontend-health
+```
+
+Stop if migration fails. On a newly migrated empty database, a same-origin
+request for an unknown snapshot should return HTTP 404. The frontend health
+check alone only verifies the static server.
+
 For private remote access, place the frontend behind an authenticated HTTPS
 gateway or a private network. Keep the frontend and API on the same origin.
 Enforce authentication and an allowlist before forwarding any request to
