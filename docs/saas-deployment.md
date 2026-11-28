@@ -1,5 +1,8 @@
 # RepoBrain zero-cost deployment runbook
 
+See the [staging readiness matrix](saas-staging-review.md) for local
+evidence, failed launch requirements, and unverified provider checks.
+
 This package is for an eligible operator after separate deployment and
 security approval. The local checks use disposable PostgreSQL, generated
 JWT signing keys, fake GitHub responses, and no cloud credentials.
@@ -73,7 +76,7 @@ environment, and a migration-role URL supplied by a secret store.
 $env:PGSSLMODE = 'verify-full'
 $env:PGSSLROOTCERT = $env:REPOBRAIN_OPERATOR_CA_PATH
 $env:PGPASSFILE = $env:REPOBRAIN_OPERATOR_PGPASS_PATH
-pg_dump --dbname 'service=repobrain-backup' --format custom --file $env:REPOBRAIN_BACKUP_PATH
+pg_dump --dbname 'service=repobrain-backup' --schema public --format custom --file $env:REPOBRAIN_BACKUP_PATH
 if ($LASTEXITCODE) { throw 'Backup failed' }
 pg_restore --list $env:REPOBRAIN_BACKUP_PATH
 if ($LASTEXITCODE) { throw 'Backup archive cannot be read' }
@@ -137,7 +140,12 @@ Supabase service-role, GitHub or model credentials into Vite variables.
 Keep hosted managed indexing and AI off; prepared snapshots are the
 fallback. Verify the static site's headers and install an exact
 build-specific Content-Security-Policy permitting only the configured
-Auth/API origins before public launch.
+Auth/API origins before public launch. The hosted build includes this
+policy in its HTML; verify it in the delivered document along with
+Blueprint response headers. If an HTTP CSP is also configured, keep both
+policies compatible. The Blueprint was validated with the public schema,
+independent of an account. This does not validate workspace names,
+domain configuration or first-sync behavior.
 
 ## 5. Local verification and later launch gates
 
